@@ -1,0 +1,29 @@
+/**
+ * 模块：Ant Design 全局样式修正
+ *
+ * main.tsx 在入口处导入本文件。这里的选择器直接匹配 AntD 内部 class，因此会
+ * 影响全站同类组件；普通业务布局应放在 App.css，不要随意在这里覆盖组件库。
+ *
+ * 文件使用 .scss 扩展名，因此可以使用 SCSS 注释等语法；当前规则本身基本是
+ * 标准 CSS。升级 AntD 后要重新确认内部 class 是否仍然有效。
+ */
+
+/*
+ * 修正“primary + text”按钮的链接颜色，让它跟随项目主题主色，而不是另一套
+ * color-link token。当前页面未直接使用这种按钮组合，规则作为全局兼容保留。
+ */
+.ant-btn-color-primary.ant-btn-variant-text {
+  --ant-color-link: var(--ant-color-primary);
+}
+
+/*
+ * 统一下拉菜单为黑底白字，并给 hover 状态增加半透明高亮。
+ * 当前主工作台没有 Dropdown；若未来新增下拉菜单，这条全局规则会立即生效。
+ */
+.ant-dropdown-menu {
+  color: white;
+  background-color: black;
+  --ant-color-bg-elevated: black;
+  --ant-color-text: white;
+  --ant-control-item-bg-hover: rgba(255, 255, 255, 0.3);
+}

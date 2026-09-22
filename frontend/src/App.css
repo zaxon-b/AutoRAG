@@ -1,0 +1,176 @@
+/**
+ * 模块：“看图查手册”工作台业务样式
+ *
+ * App.tsx 通过 className 把 JSX 元素与这里的选择器对应起来。本文件只决定
+ * 布局和外观，不保存 React state，也不会触发上传或问答请求。
+ *
+ * 命名中的双下划线表示“某个组件内部的子元素”，例如 demo-header__inner 是
+ * demo-header 内部的内容容器；这只是当前项目的命名约定，不是 CSS 强制语法。
+ */
+
+/* ===== 1. 页面外壳和头部 ===== */
+
+.demo-shell {
+  /* 至少占满整个浏览器可见高度，内容更长时仍允许页面自然向下延伸。 */
+  min-height: 100vh;
+  background: #f4f7fb;
+  color: #172033;
+}
+
+.demo-header {
+  border-bottom: 1px solid #d8e0ea;
+  background: #ffffff;
+}
+
+.demo-header__inner {
+  /* 大屏最多 1280px；小屏保留左右各 24px。 */
+  width: min(1280px, calc(100% - 48px));
+  /* 上下为 0、左右 auto，会把固定宽度内容水平居中。 */
+  margin: 0 auto;
+  padding: 24px 0 18px;
+}
+
+.demo-title {
+  /* h1 自带浏览器默认边距，这里清零后由容器 padding 统一控制。 */
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.demo-subtitle {
+  margin: 6px 0 0;
+  color: #5c667a;
+}
+
+/* ===== 2. 主内容与左右两栏 ===== */
+
+.demo-main {
+  width: min(1280px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 24px 0 40px;
+}
+
+.demo-grid {
+  display: grid;
+  /*
+   * 左栏在 320～380px 之间；右栏占剩余空间。
+   * 右栏使用 minmax(0, 1fr)，避免长答案或图片把整个 Grid 撑出视口。
+   */
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* ===== 3. 通用业务面板 ===== */
+
+.demo-panel {
+  border: 1px solid #dce3ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+}
+
+/* `+` 是相邻兄弟选择器：只给紧跟在另一个面板后的面板增加顶部距离。 */
+.demo-panel + .demo-panel {
+  margin-top: 16px;
+}
+
+.demo-panel__title {
+  margin: 0 0 14px;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+/* ===== 4. 手册状态与操作区 ===== */
+
+.demo-status {
+  display: grid;
+  gap: 10px;
+}
+
+.demo-status__row {
+  /* 字段名称靠左、统计值靠右。 */
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #edf1f6;
+  padding-bottom: 8px;
+  color: #5c667a;
+}
+
+.demo-status__row strong {
+  color: #172033;
+  text-align: right;
+  /* 文件名或 manual_id 太长时允许断行，避免撑破左栏。 */
+  word-break: break-word;
+}
+
+.demo-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* ===== 5. 回答与证据 ===== */
+
+.demo-answer {
+  /* 没有答案时也保留稳定高度，减少页面在请求前后的大幅跳动。 */
+  min-height: 180px;
+  /* 保留后端回答中的换行，同时允许长行根据容器宽度自动折行。 */
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.demo-evidence {
+  display: grid;
+  gap: 12px;
+}
+
+.demo-evidence__item {
+  border: 1px solid #e0e7f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.demo-evidence__meta {
+  display: flex;
+  /* 页码、模态、分数和方法标签过多时自动换到下一行。 */
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.demo-evidence__text {
+  /* p 标签有默认外边距，这里清零以保持卡片间距一致。 */
+  margin: 0;
+  color: #344055;
+  line-height: 1.6;
+}
+
+/* ===== 6. 图片识别结果和上传器 ===== */
+
+.demo-image-result {
+  /* 每组 Tag、描述、关键词和建议纵向排列。 */
+  display: grid;
+  gap: 10px;
+}
+
+.demo-upload {
+  width: 100%;
+}
+
+/* ===== 7. 小屏响应式布局 ===== */
+
+/* 浏览器宽度不超过 900px 时，将左右两栏改成从上到下的一栏。 */
+@media (max-width: 900px) {
+  .demo-header__inner,
+  .demo-main {
+    /* 小屏把左右总留白从 48px 减少到 28px。 */
+    width: min(100% - 28px, 1280px);
+  }
+
+  .demo-grid {
+    grid-template-columns: 1fr;
+  }
+}

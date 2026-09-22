@@ -1,0 +1,32 @@
+{
+  /*
+   * 模块：Vite 配置文件的 TypeScript 规则
+   *
+   * vite.config.ts 在 Node.js 中执行，不在浏览器中执行，所以这里不引入 DOM，
+   * 并使用更高版本的 ES2022/ES2023 标准库。业务组件由 tsconfig.app.json 检查。
+   */
+  "compilerOptions": {
+    /* 保存增量检查缓存。 */
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Vite 读取配置并处理模块，TypeScript 只负责解析和检查。 */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* 与应用源码保持同样严格的类型和死代码检查。 */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  /* 本配置只负责 Vite 配置模块。 */
+  "include": ["vite.config.ts"]
+}

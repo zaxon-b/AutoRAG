@@ -1,0 +1,27 @@
+{
+  /*
+   * 模块：TypeScript 总配置入口
+   *
+   * `npm run build` 中的 `tsc -b` 从这里开始。当前文件不直接编译源码，而是
+   * 通过 references 分别检查浏览器应用和 Vite/Node 配置，避免两种运行环境
+   * 的全局类型互相污染。
+   */
+  "files": [],
+  "references": [
+    {
+      /* React、DOM、业务 API 和组件源码。 */
+      "path": "./tsconfig.app.json"
+    },
+    {
+      /* 只检查运行在 Node/Vite 环境中的 vite.config.ts。 */
+      "path": "./tsconfig.node.json"
+    }
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      /* 让编辑器和 TypeScript 认识 @/api -> frontend/src/api。 */
+      "@/*": ["./src/*"]
+    }
+  }
+}

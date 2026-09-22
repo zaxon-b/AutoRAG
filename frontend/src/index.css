@@ -1,0 +1,49 @@
+/**
+ * 模块：全局基础样式
+ *
+ * main.tsx 在应用启动时导入本文件，因此这些规则会影响整个页面。这里适合放
+ * 字体、默认字号和浏览器级通用样式；具体工作台的卡片和两栏布局放在 App.css，
+ * 避免全局规则意外影响未来新增页面。
+ */
+
+/*
+ * :root 在普通页面中就是最外层 html 元素，同时也是 CSS 变量的默认作用域。
+ * 当前主要用它统一页面文字渲染。背景色是页面最底层颜色，App.css 的
+ * .demo-shell 会再覆盖当前业务页可见区域。
+ */
+:root {
+  background-color: #effbfd;
+  font-size: 14px;
+  line-height: 1.5;
+
+  /*
+   * 字体按顺序回退：系统装有 Inter 时优先使用；中文环境依次尝试苹方、
+   * 微软雅黑；都没有时由浏览器选择无衬线字体。
+   */
+  font-family:
+    Inter,
+    Pingfang SC,
+    Microsoft Yahei,
+    sans-serif;
+
+  /* 避免浏览器伪造缺失的粗体/斜体，保持设计结果更可控。 */
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  /* 分别改善 WebKit 和 Firefox/macOS 下的字体边缘显示。 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * 给需要滚动的元素加 className="scrollbar-style" 后，Firefox 会使用细滚动条。
+ * 当前主页面尚未使用这个 class，它是一个可复用的全局工具类。
+ */
+.scrollbar-style {
+  scrollbar-width: thin;
+}
+
+/* Chrome、Edge、Safari 使用 WebKit 伪元素控制滚动条宽度。 */
+.scrollbar-style::-webkit-scrollbar {
+  width: 8px;
+}

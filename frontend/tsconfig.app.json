@@ -1,0 +1,53 @@
+{
+  /*
+   * 模块：浏览器端 React 源码的 TypeScript 规则
+   *
+   * 作用范围由最后的 include=["src"] 决定。这里开启 DOM 类型和 JSX 转换，
+   * 也使用严格模式阻止隐式 any、未使用参数等问题进入生产构建。
+   */
+  "compilerOptions": {
+    /* 保存增量检查信息，加快重复执行 tsc -b。 */
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+
+    /* 生成代码可以使用 ES2020 和浏览器 DOM/File/fetch 等标准 API。 */
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+
+    /* Vite 负责最终打包，所以 TypeScript 保留 ES 模块并按 bundler 方式解析。 */
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+
+    /* 只做类型检查，不输出 JS；真正的 JS/CSS 产物由 Vite 生成。 */
+    "noEmit": true,
+
+    /* 使用 React 17+ 的自动 JSX runtime，组件文件不必为 JSX 单独 import React。 */
+    "jsx": "react-jsx",
+
+    /* 严格检查能尽早暴露 unknown/undefined、死代码和错误控制流。 */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
+    /* 与 vite.config.ts 保持一致的 @/ 源码别名。 */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    /* 为导入 CSS Modules 提供编辑器类型支持；当前 App.css 使用普通全局 class。 */
+    "plugins": [
+      {
+        "name": "typescript-plugin-css-modules"
+      }
+    ]
+  },
+  /* 只检查 src 内的浏览器代码，不把 Node 配置和 dist 产物混进来。 */
+  "include": ["src"]
+}

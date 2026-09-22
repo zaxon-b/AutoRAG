@@ -1,0 +1,41 @@
+<!doctype html>
+<!--
+  模块：浏览器 HTML 外壳
+
+  这是浏览器访问前端地址后最先拿到的文件。它只负责提供页面的基础结构和
+  React 挂载点，不包含手册上传、文本问答或图片问答等业务逻辑。
+
+  启动顺序：
+  1. 浏览器读取本文件；
+  2. 找到 body 中 id="root" 的空容器；
+  3. 加载 /src/main.tsx；
+  4. main.tsx 再把 React 的 <App /> 渲染到 root 中。
+-->
+<html lang="zh-CN">
+  <head>
+    <!-- 使用 UTF-8，保证中文标题和页面文字不会乱码。 -->
+    <meta charset="UTF-8" />
+
+    <!--
+      让页面宽度跟随手机或电脑屏幕实际宽度。
+      没有这一行时，移动浏览器可能按桌面页面宽度缩放，响应式布局会失真。
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>AutoRAG · 汽车手册多模态问答</title>
+  </head>
+  <body>
+    <!--
+      React 的唯一挂载点。初始 HTML 中它是空的；main.tsx 运行后，整个应用
+      的按钮、输入框、回答和证据面板都会由 React 创建到这个容器中。
+    -->
+    <div id="root"></div>
+
+    <!--
+      type="module" 表示使用现代 JavaScript 模块加载方式，因此 main.tsx
+      可以继续通过 import 引入 React、App 组件和 CSS。开发环境中 Vite 会
+      即时转换 TSX；生产构建后，这个入口会被替换成 dist/assets 下的文件。
+    -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

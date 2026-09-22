@@ -1,0 +1,50 @@
+.DS_Store
+*.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Python / backend runtime
+.env
+backend/.env
+backend/app/storage/
+backend/app/service/core/storage/
+
+# Frontend runtime
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
+
+# Logs and temporary files
+*.log
+tmp/
+output/
+**/embedding_inputs_v2/
+
+# Local documents and generated artifacts
+*.pdf
+*.ppt
+*.pptx
+
+# Internal learning, interview and packaging notes are intentionally excluded
+# from the public repository.
+*GUIDE*.md
+*TUTORIAL*.md
+*PACKAGING*.md
+PROJECT_MANUAL.md
+RAG_CHUNK_REFACTOR_CHANGE_SPEC.md
+
+# Local runtime snapshots; database and generated media must never enter Git.
+/history/
+/old/
+
+# Publish compact summaries, not per-sample audits or raw model outputs.
+evals/results/**/*.json
+evals/results/**/*.jsonl
+evals/results/**/*audit*.md
+
+# Finder conflict copies are not application source.
+backend/.env 2.example
+backend/app/router/* 2.py
