@@ -31,10 +31,9 @@ QUERY_TAIL = "含义 亮起 怎么办 处理方法"
 
 
 def anchor_matches(row: dict, cand: dict) -> bool:
-    gold_type = row.get("visual_gold_type")
-    if gold_type == "visual_chunk":
-        return str(cand.get("chunk_id")) in set(row.get("expected_visual_chunk_ids") or [])
-    return str(cand.get("icon_group_id")) in set(row.get("expected_icon_group_ids") or [])
+    # Every visual object owns exactly one chunk, so icon and operation hits
+    # are judged by the same audited chunk ID.
+    return str(cand.get("chunk_id")) in set(row.get("expected_visual_chunk_ids") or [])
 
 
 def minimal_vision(text_query: str, title: str) -> dict:

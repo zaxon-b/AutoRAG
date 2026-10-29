@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pdfplumber
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.orm import Session
 
 from models.base import Base
@@ -51,6 +51,21 @@ logger = logging.getLogger(__name__)
 
 def ensure_tables(db: Session) -> None:
     Base.metadata.create_all(bind=db.get_bind())
+    _ensure_incremental_columns(db)
+
+
+def _ensure_incremental_columns(db: Session) -> None:
+    """Add columns that ``create_all`` cannot add to an existing table.
+
+    ``create_all`` only creates missing tables.  ``source_pages`` was added
+    after the first native schema was deployed, so an existing PostgreSQL
+    database needs this idempotent statement before chunks are rewritten.
+    """
+
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(text("ALTER TABLE manual_chunks ADD COLUMN IF NOT EXISTS source_pages JSONB"))
+    db.commit()
 
 
 def ingest_manual(db: Session, file_obj, filename: str, manual_id: str = DEFAULT_MANUAL_ID) -> dict[str, Any]:
@@ -363,7 +378,6 @@ def _build_native_visual_catalog(
     )
 
     icon_chunks: list[dict[str, Any]] = []
-    icon_index_payloads: list[dict[str, Any]] = []
     prototypes: list[dict[str, Any]] = []
     for group in groups:
         group_id = str(group["icon_group_id"])
@@ -407,29 +421,25 @@ def _build_native_visual_catalog(
             thumbnail_path=primary_prototype.get("image_path"),
             risk_level=_risk_level(representative.get("content_text")),
             icon_group_id=group_id,
-            _es_doc_id=primary_prototype.get("prototype_id"),
+            asset_id=primary_prototype.get("asset_id"),
         )
+        # The representative image vector is stored on the same document as
+        # every other icon field, so one group yields exactly one ES record.
+        if primary_prototype.get("image_vector") is not None:
+            icon_payload[IMAGE_EMBEDDING_FIELD] = primary_prototype["image_vector"]
         icon_chunks.append(icon_payload)
 
+        # The prototype table is kept for compatibility with maintenance and
+        # offline OpenCV diagnostics, but online indexing no longer reads it.
         for prototype in group.get("prototypes") or []:
-            persisted = {
-                **prototype,
-                "manual_id": manual_id,
-                "icon_group_id": group_id,
-                "group_chunk_id": group_chunk_id,
-            }
-            prototypes.append(persisted)
-            index_payload = {
-                **icon_payload,
-                "prototype_id": prototype["prototype_id"],
-                "asset_id": prototype["asset_id"],
-                "image_path": prototype["image_path"],
-                "thumbnail_path": prototype["image_path"],
-                "_es_doc_id": prototype["prototype_id"],
-            }
-            if prototype.get("image_vector") is not None:
-                index_payload[IMAGE_EMBEDDING_FIELD] = prototype["image_vector"]
-            icon_index_payloads.append(index_payload)
+            prototypes.append(
+                {
+                    **prototype,
+                    "manual_id": manual_id,
+                    "icon_group_id": group_id,
+                    "group_chunk_id": group_chunk_id,
+                }
+            )
 
     operation_occurrences = [
         occurrence
@@ -495,11 +505,7 @@ def _build_native_visual_catalog(
             payload[IMAGE_EMBEDDING_FIELD] = vector
 
     visual_chunks = [*page_snapshots, *icon_chunks, *operation_chunks]
-    visual_index_payloads = [
-        *page_snapshots,
-        *icon_index_payloads,
-        *operation_chunks,
-    ]
+    visual_index_payloads = [*page_snapshots, *icon_chunks, *operation_chunks]
     return {
         "assets": assets,
         "occurrences": occurrences,
@@ -525,6 +531,7 @@ def _payload_to_row(payload: dict[str, Any]) -> ManualChunk:
         chunk_id=payload["chunk_id"],
         manual_id=payload["manual_id"],
         page_number=payload["page"],
+        source_pages=payload.get("source_pages"),
         modality=payload["modality"],
         section_title=payload.get("section_title"),
         content_text=payload.get("content_text"),

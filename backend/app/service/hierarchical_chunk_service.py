@@ -81,6 +81,7 @@ def build_hierarchical_text_chunks(
                     chunk_id=parent_chunk_id,
                     manual_id=manual_id,
                     page=int(node["page"]),
+                    source_pages=_block_pages(full_blocks[node_id]),
                     section_title=path,
                     content_text=full_text,
                     parent_chunk_id=ancestor_parent_id,
@@ -213,6 +214,7 @@ def _build_page_fallback(
                 chunk_id=parent_id,
                 manual_id=manual_id,
                 page=page,
+                source_pages=[page],
                 section_title=None,
                 content_text=full_text,
                 parent_chunk_id=None,
@@ -244,7 +246,7 @@ def _leaf_payloads(
     leaf_role: str,
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
-    for index, (page, text) in enumerate(
+    for index, (source_pages, text) in enumerate(
         _split_blocks_by_tokens(blocks, leaf_token_limit),
         start=1,
     ):
@@ -252,7 +254,8 @@ def _leaf_payloads(
             _text_payload(
                 chunk_id=stable_chunk_id(manual_id, "text", node_id, leaf_role, index),
                 manual_id=manual_id,
-                page=page,
+                page=source_pages[0],
+                source_pages=source_pages,
                 section_title=section_title,
                 content_text=text,
                 parent_chunk_id=parent_chunk_id,
@@ -267,6 +270,7 @@ def _text_payload(
     chunk_id: str,
     manual_id: str,
     page: int,
+    source_pages: list[int],
     section_title: str | None,
     content_text: str,
     parent_chunk_id: str | None,
@@ -276,6 +280,7 @@ def _text_payload(
         "chunk_id": chunk_id,
         "manual_id": manual_id,
         "page": page,
+        "source_pages": sorted({int(value) for value in source_pages}),
         "modality": "text",
         "section_title": section_title,
         "content_text": content_text,
@@ -404,29 +409,38 @@ def _hard_split(text: str, max_tokens: int) -> list[str]:
 def _split_blocks_by_tokens(
     blocks: list[tuple[int, str]],
     max_tokens: int,
-) -> list[tuple[int, str]]:
-    """Split while preserving the first source page of each resulting leaf."""
+) -> list[tuple[list[int], str]]:
+    """Split blocks into leaves and keep every source page a leaf spans.
+
+    The first page stays the display page.  ``source_pages`` records the real
+    page set so a chunk that crosses pages 10 and 11 is still found when an
+    icon appears on page 11.
+    """
 
     units: list[tuple[int, str]] = []
     for page, text in blocks:
         units.extend((page, part) for part in split_text_by_tokens(text, max_tokens))
 
-    result: list[tuple[int, str]] = []
-    current_page: int | None = None
+    result: list[tuple[list[int], str]] = []
+    current_pages: list[int] = []
     current: list[str] = []
     for page, unit in units:
         candidate = "\n".join([*current, unit])
         if current and count_tokens(candidate) > max_tokens:
-            result.append((int(current_page or page), "\n".join(current)))
-            current_page = page
+            result.append((current_pages, "\n".join(current)))
+            current_pages = [page]
             current = [unit]
         else:
-            if current_page is None:
-                current_page = page
+            if page not in current_pages:
+                current_pages.append(page)
             current.append(unit)
     if current:
-        result.append((int(current_page or blocks[0][0]), "\n".join(current)))
+        result.append((current_pages or [blocks[0][0]], "\n".join(current)))
     return result
+
+
+def _block_pages(blocks: list[tuple[int, str]]) -> list[int]:
+    return sorted({int(page) for page, _ in blocks})
 
 
 def _join_blocks(blocks: list[tuple[int, str]]) -> str:

@@ -39,6 +39,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _indexed_doc_ids(es: Any, manual_id: str) -> set[str]:
+    """Return the ES document IDs that actually exist for one manual."""
+
+    query = {
+        "query": {"bool": {"filter": [{"term": {"manual_id": manual_id}}]}},
+        "_source": False,
+    }
+    return {
+        str(hit["_id"])
+        for hit in scan(es, index=INDEX_NAME, query=query, preserve_order=False)
+    }
+
+
 def _existing_vector_ids(es: Any, manual_id: str) -> set[str]:
     query = {
         "query": {
@@ -100,15 +113,27 @@ def main() -> None:
     finally:
         db.close()
 
-    targets = [chunk for chunk in chunks if chunk.chunk_id not in existing_ids]
+    # Only update documents that already exist.  A missing document is reported
+    # instead of being recreated as an incomplete record.
+    indexed_ids = _indexed_doc_ids(es, args.manual_id)
+    missing_doc_ids = [chunk.chunk_id for chunk in chunks if chunk.chunk_id not in indexed_ids]
+    indexed_chunks = [chunk for chunk in chunks if chunk.chunk_id in indexed_ids]
+
+    targets = [chunk for chunk in indexed_chunks if chunk.chunk_id not in existing_ids]
     if args.limit:
         targets = targets[: args.limit]
 
     print(
         f"Multimodal backfill plan: manual_id={args.manual_id} total_chunks={len(chunks)} "
+        f"indexed_docs={len(indexed_chunks)} missing_docs={len(missing_doc_ids)} "
         f"already_indexed={len(existing_ids)} targets={len(targets)} force={args.force}",
         flush=True,
     )
+    if missing_doc_ids:
+        print(
+            "Chunks without an ES document (not updated): " + ",".join(sorted(missing_doc_ids)),
+            flush=True,
+        )
     if args.dry_run or not targets:
         return
 

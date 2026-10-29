@@ -16,13 +16,20 @@
     <!-- 使用 UTF-8，保证中文标题和页面文字不会乱码。 -->
     <meta charset="UTF-8" />
 
+    <!-- 浏览器标签页图标。当前仍使用 Vite 默认图标，后续可替换为项目图标。 -->
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+
     <!--
       让页面宽度跟随手机或电脑屏幕实际宽度。
       没有这一行时，移动浏览器可能按桌面页面宽度缩放，响应式布局会失真。
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>AutoRAG · 汽车手册多模态问答</title>
+    <!--
+      %VITE_TITLE% 不是运行时变量，而是 Vite 在启动/构建时替换的占位符。
+      它来自 frontend/.env，用于设置浏览器标签页标题。
+    -->
+    <title>%VITE_TITLE%</title>
   </head>
   <body>
     <!--

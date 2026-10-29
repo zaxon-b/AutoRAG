@@ -109,7 +109,8 @@ type ImageQaParams = {
  * 上传图片并等待完整图片问答结果。
  *
  * 图片是二进制文件，所以使用 FormData/multipart，而不是 JSON。后端完成 VLM
- * 初判、三路视觉召回、门控融合、VLM 二验、正文检索和回答后才返回 JSON。
+ * 初判、图片/多模态向量双路召回、等权 RRF、正文检索和回答后才返回 JSON。
+ * 候选改选式 VLM 二验默认关闭，只用于离线实验。
  */
 export async function imageQa(params: ImageQaParams) {
   const form = new FormData()

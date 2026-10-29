@@ -1,23 +1,23 @@
-# 模块说明：图片 embedding 服务：把图标图片转成多模态向量，用于用户图标和手册图标之间的图片搜图片。
-# 调用关系：由建库生成视觉 chunk 向量、图片问答检索用户图时调用。
-# 返回/产出：返回图片向量；如果未配置模型则返回空向量。
-# 代码说明：导入模块，os：读取环境变量，例如模型 key、阈值、数据库地址和存储目录。
+"""图片 embedding：用 DashScope 多模态接口生成图片向量。
+
+图片向量只用于“图片搜图片”的视觉召回；它与 OpenCV 形状特征、
+多模态文本向量是三条独立路线。
+"""
+
 import logging
 import os
 import time
 import hashlib
-# 代码说明：从 pathlib 导入：Path：使用 pathlib 统一处理本地文件和目录路径。
 from pathlib import Path
 
 
-# 代码说明：IMAGE_EMBEDDING_DIM 表示图片 embedding 向量维度，必须和 ES image_vector 字段维度一致；这里调用 `getenv` 得到它，调用目的：从环境变量读取配置，让阈值、模型地址、数据库地址不写死在代码里。
+# 必须与 ES dense_vector mapping 一致。
 IMAGE_EMBEDDING_DIM = int(os.getenv("IMAGE_EMBEDDING_DIM", "768"))
-# 代码说明：IMAGE_EMBEDDING_FIELD 表示ES 中保存图片向量的字段名；本行右侧表达式负责得到这个值。
 IMAGE_EMBEDDING_FIELD = "image_embedding_vector"
+# 白底预处理后的影子向量；与原生向量存在同一条 ES 文档上。
 IMAGE_EMBEDDING_V2_FIELD = "image_embedding_vector_v2"
 IMAGE_EMBEDDING_PROFILE_NATIVE = "native"
 IMAGE_EMBEDDING_PROFILE_ALPHA_WHITE = "alpha_white"
-# 代码说明：DEFAULT_IMAGE_EMBEDDING_MODEL 表示default / 图片 / 向量 / 模型名；本行右侧表达式负责得到这个值。
 DEFAULT_IMAGE_EMBEDDING_MODEL = "tongyi-embedding-vision-flash"
 IMAGE_EMBEDDING_BATCH_SIZE = max(1, min(20, int(os.getenv("IMAGE_EMBEDDING_BATCH_SIZE", "10"))))
 IMAGE_EMBEDDING_MAX_RETRIES = max(0, int(os.getenv("IMAGE_EMBEDDING_MAX_RETRIES", "3")))
@@ -25,113 +25,67 @@ IMAGE_EMBEDDING_MAX_RETRIES = max(0, int(os.getenv("IMAGE_EMBEDDING_MAX_RETRIES"
 logger = logging.getLogger(__name__)
 
 
-# 函数说明：_clean_env：封装当前模块的一段业务逻辑，供其他流程调用。
-# 被谁调用：本模块内部函数、其他 service、路由层或评测脚本按需调用。
-# 返回内容：根据函数体 return/yield 返回接口响应、证据列表、向量、文件路径、模型结果或统计指标。
-# 代码说明：定义函数 _clean_env：封装当前模块的一段业务逻辑，供其他流程复用。
 def _clean_env(value: str | None) -> str | None:
-    # 代码说明：判断条件 `value is None` 是否成立，成立时执行下面缩进代码。
     if value is None:
-        # 代码说明：返回当前函数的最终结果，结束本函数执行并把数据交给调用方。
         return None
-    # 代码说明：value：当前正在清洗、追加或判断的单个值；右侧表达式给它赋具体值，后续流程会按这个业务含义使用。
     value = value.strip().strip('"').strip("'")
-    # 代码说明：返回当前函数的最终结果，结束本函数执行并把数据交给调用方。
     return value or None
 
 
-# 函数说明：_api_key：封装当前模块的一段业务逻辑，供其他流程调用。
-# 被谁调用：本模块内部函数、其他 service、路由层或评测脚本按需调用。
-# 返回内容：根据函数体 return/yield 返回接口响应、证据列表、向量、文件路径、模型结果或统计指标。
-# 代码说明：定义函数 _api_key：封装当前模块的一段业务逻辑，供其他流程复用。
 def _api_key() -> str | None:
-    # 代码说明：返回调用结果：从环境变量读取配置，让阈值、模型地址、数据库地址不写死在代码里，调用方会拿这个结果继续下一步。
     return _clean_env(os.getenv("IMAGE_EMBEDDING_API_KEY")) or _clean_env(os.getenv("DASHSCOPE_API_KEY"))
 
 
-# 函数说明：_model：封装当前模块的一段业务逻辑，供其他流程调用。
-# 被谁调用：本模块内部函数、其他 service、路由层或评测脚本按需调用。
-# 返回内容：根据函数体 return/yield 返回接口响应、证据列表、向量、文件路径、模型结果或统计指标。
-# 代码说明：定义函数 _model：封装当前模块的一段业务逻辑，供其他流程复用。
 def _model() -> str:
-    # 代码说明：返回调用结果：从环境变量读取配置，让阈值、模型地址、数据库地址不写死在代码里，调用方会拿这个结果继续下一步。
     return _clean_env(os.getenv("IMAGE_EMBEDDING_MODEL")) or DEFAULT_IMAGE_EMBEDDING_MODEL
 
 
-# 函数说明：embed_image：为单张图片生成多模态 embedding，用于图片搜图标。
-# 被谁调用：本模块内部函数、其他 service、路由层或评测脚本按需调用。
-# 返回内容：根据函数体 return/yield 返回接口响应、证据列表、向量、文件路径、模型结果或统计指标。
-# 代码说明：定义函数 embed_image：为单张图片生成多模态 embedding，用于图片搜图标。
 def embed_image(
     image_path: str | Path | None,
     *,
     preprocessing: str = IMAGE_EMBEDDING_PROFILE_NATIVE,
 ) -> list[float] | None:
-    # 代码说明：这一行是当前多行表达式或控制流程的一部分，负责补充具体条件、字段或计算结果。
-    """Generate a real multimodal image embedding.
+    """单张图片的向量，是 embed_images 的便捷封装。"""
 
-    This is intentionally backed by DashScope's multimodal embedding API, not
-    by the local OpenCV shape features used for the separate opencv_icon_match
-    fallback route.
-    """
-    # 代码说明：vectors：embedding 模型输出的向量列表；右侧表达式给它赋具体值，后续流程会按这个业务含义使用。
     vectors = embed_images([image_path], preprocessing=preprocessing)
-    # 代码说明：返回当前函数的最终结果，结束本函数执行并把数据交给调用方。
     return vectors[0] if vectors else None
 
 
-# 函数说明：embed_images：批量生成图片 embedding。
-# 被谁调用：本模块内部函数、其他 service、路由层或评测脚本按需调用。
-# 返回内容：根据函数体 return/yield 返回接口响应、证据列表、向量、文件路径、模型结果或统计指标。
-# 代码说明：定义函数 embed_images：批量生成图片 embedding。
 def embed_images(
     image_paths: list[str | Path | None],
     *,
     preprocessing: str = IMAGE_EMBEDDING_PROFILE_NATIVE,
 ) -> list[list[float] | None]:
-    # 代码说明：进入异常保护块：下面的外部接口、文件、数据库或模型调用可能失败，需要捕获错误。
+    """批量生成图片向量，返回值与输入顺序一一对应。
+
+    路径不存在、预处理失败或某批 API 调用失败的位置返回 None，
+    而不是抛出异常中断整个建库流程。
+    """
+
     try:
-        # 代码说明：从 dashscope 导入：MultiModalEmbedding：本文件后续逻辑依赖的对象；MultiModalEmbeddingItemImage：本文件后续逻辑依赖的对象。
         from dashscope import MultiModalEmbedding, MultiModalEmbeddingItemImage
-    # 代码说明：捕获异常 `Exception`，把底层错误转换成当前模块可处理的返回或提示。
     except Exception:
-        # 代码说明：返回列表结果：调用方会把这些元素作为候选、chunk 或指标继续处理。
         return [None for _ in image_paths]
 
-    # 代码说明：判断条件 `not _api_key()` 是否成立，成立时执行下面缩进代码。
     if not _api_key():
-        # 代码说明：返回列表结果：调用方会把这些元素作为候选、chunk 或指标继续处理。
         return [None for _ in image_paths]
 
-    # 代码说明：valid_positions 表示valid / positions；本行右侧表达式负责得到这个值。
     valid_positions: list[int] = []
-    # 代码说明：valid_items 表示valid / 条目集合；本行右侧表达式负责得到这个值。
     valid_items = []
-    # 代码说明：循环遍历 enumerate(image_paths)，每轮把当前元素放到 index, image_path 中处理。
     for index, image_path in enumerate(image_paths):
-        # 代码说明：判断条件 `not image_path` 是否成立，成立时执行下面缩进代码。
         if not image_path:
-            # 代码说明：导入 continue：供本模块后续代码直接调用。
             continue
-        # 代码说明：path：本地文件路径对象或字符串；右侧表达式给它赋具体值，后续流程会按这个业务含义使用。
         path = Path(image_path)
-        # 代码说明：判断条件 `not path.exists()` 是否成立，成立时执行下面缩进代码。
         if not path.exists():
-            # 代码说明：导入 continue：供本模块后续代码直接调用。
             continue
-        # 代码说明：把当前结果追加到 valid_positions 列表中；这表示它会参与后续排序、融合、返回或统计。
         embedding_path = prepare_image_embedding_input(path, preprocessing=preprocessing)
         if embedding_path is None or not embedding_path.exists():
             continue
         valid_positions.append(index)
-        # 代码说明：valid_items 表示valid / 条目集合；本行右侧表达式负责得到这个值。
         valid_items.append(MultiModalEmbeddingItemImage(image=f"file://{embedding_path}", factor=1.0))
 
-    # 代码说明：results 表示结果集合；本行右侧表达式负责得到这个值。
     results: list[list[float] | None] = [None for _ in image_paths]
-    # 代码说明：判断条件 `not valid_items` 是否成立，成立时执行下面缩进代码。
     if not valid_items:
-        # 代码说明：返回当前函数的最终结果，结束本函数执行并把数据交给调用方。
         return results
 
     for start in range(0, len(valid_items), IMAGE_EMBEDDING_BATCH_SIZE):
@@ -141,7 +95,6 @@ def embed_images(
             valid_items[start : start + IMAGE_EMBEDDING_BATCH_SIZE],
             results,
         )
-    # 代码说明：返回当前函数的最终结果，结束本函数执行并把数据交给调用方。
     return results
 
 
@@ -150,11 +103,10 @@ def prepare_image_embedding_input(
     *,
     preprocessing: str = IMAGE_EMBEDDING_PROFILE_NATIVE,
 ) -> Path | None:
-    """Return the actual file sent to the image-embedding provider.
+    """返回真正送给 embedding 服务的文件。
 
-    ``native`` preserves the current production route. ``alpha_white`` creates
-    a cached RGB PNG only when the source has an alpha channel. The cached file
-    is an embedding input, never a second chunk or a second searchable object.
+    native 直接使用原图；alpha_white 只对带透明通道的图生成白底缓存 PNG。
+    缓存文件只是 embedding 输入，不会变成第二个 chunk 或第二条可检索对象。
     """
 
     path = Path(image_path)
@@ -172,9 +124,11 @@ def prepare_image_embedding_input(
         image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
         if image is None:
             return None
+        # 没有 alpha 通道的图本身就是白底，无需再合成。
         if image.ndim != 3 or image.shape[2] != 4:
             return path
 
+        # 用文件大小和修改时间做缓存键，源图变化后自动重建。
         stat = path.stat()
         cache_key = hashlib.sha1(
             f"{path.resolve()}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")
@@ -202,6 +156,12 @@ def prepare_image_embedding_input(
 
 
 def _embed_batch(client, positions: list[int], items: list, results: list[list[float] | None]) -> None:
+    """调用一批图片 embedding，并把成功结果写回原始下标。
+
+    408/409/425/429 和 5xx 视为可重试错误，采用指数退避；其他错误
+    直接放弃这一批，避免无意义等待。
+    """
+
     response = None
     for attempt in range(1, IMAGE_EMBEDDING_MAX_RETRIES + 2):
         try:
@@ -233,5 +193,6 @@ def _embed_batch(client, positions: list[int], items: list, results: list[list[f
         return
     for position, item in zip(positions, embeddings):
         vector = item.get("embedding") if isinstance(item, dict) else None
+        # 维度不符说明模型配置和索引 mapping 不一致，宁可留空也不写入错误向量。
         if vector and len(vector) == IMAGE_EMBEDDING_DIM:
             results[position] = [float(value) for value in vector]

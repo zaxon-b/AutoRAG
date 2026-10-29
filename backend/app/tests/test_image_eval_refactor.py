@@ -16,7 +16,7 @@ from evaluate_owner_manual import (
 )
 
 
-DATASET = Path("/app/evals/datasets/owner_manual_image_eval_native_v3.jsonl")
+DATASET = Path("/app/evals/datasets/owner_manual_image_eval_native_v4.jsonl")
 
 
 class RefactorDatasetTest(unittest.TestCase):
@@ -35,14 +35,15 @@ class RefactorDatasetTest(unittest.TestCase):
             {
                 "icon_visual_regression": 40,
                 "general_visual_answerable": 20,
-                "real_icon_strong_positive": 10,
+                "real_icon_strong_positive": 9,
+                "real_icon_visual_positive_text_absent_refusal": 1,
                 "true_general_refusal": 20,
             },
         )
 
     def test_every_answerable_case_has_visual_text_and_answer_gold(self) -> None:
         answerable = [row for row in self.rows if not row.get("should_refuse")]
-        self.assertEqual(len(answerable), 70)
+        self.assertEqual(len(answerable), 69)
         for row in answerable:
             self.assertTrue(row.get("relevant_visual_chunk_ids"), row["id"])
             self.assertTrue(row.get("relevant_text_chunk_ids"), row["id"])
@@ -62,7 +63,7 @@ class RefactorDatasetTest(unittest.TestCase):
 
     def test_only_audited_true_refusals_are_scored_and_none_has_fabricated_gold(self) -> None:
         refusals = [row for row in self.rows if row.get("should_refuse")]
-        self.assertEqual(len(refusals), 20)
+        self.assertEqual(len(refusals), 21)
         scored_ids = {
             row["id"] for row in refusals if row.get("refusal_evaluable")
         }
@@ -76,6 +77,7 @@ class RefactorDatasetTest(unittest.TestCase):
                 "image_refusal_07",
                 "image_refusal_08",
                 "image_refusal_10",
+                "image_strong_05",
             },
         )
         self.assertTrue(all(not row.get("relevant_visual_chunk_ids") for row in refusals))
@@ -87,6 +89,7 @@ class RefactorDatasetTest(unittest.TestCase):
                 "unrelated_image": 5,
                 "blurry_unrecognizable": 5,
                 "ambiguous_full_dashboard": 5,
+                None: 1,
             },
         )
 

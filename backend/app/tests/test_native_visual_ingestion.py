@@ -58,8 +58,11 @@ class NativeVisualIngestionTest(unittest.TestCase):
         )
         self.assertEqual(_candidate_edges([left, right]), [("a", "b")])
 
-    def test_only_icon_prototypes_enter_visual_index(self) -> None:
-        self.assertFalse(_should_index({"modality": "icon", "chunk_id": "group"}))
+    def test_each_icon_group_enters_visual_index_once(self) -> None:
+        # One group = one icon chunk = one ES document keyed by chunk_id; the
+        # prototype row is no longer an indexing prerequisite.
+        self.assertTrue(_should_index({"modality": "icon", "chunk_id": "group"}))
+        self.assertFalse(_should_index({"modality": "icon"}))
         self.assertTrue(
             _should_index(
                 {

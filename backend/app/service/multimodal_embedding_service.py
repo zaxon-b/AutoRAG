@@ -1,6 +1,10 @@
-# 模块说明：多模态 embedding 服务：把文本或图片映射到同一向量空间，供图片问答做图文跨模态召回。
-# 调用关系：建库时为 chunk 写入 multimodal_vector；图片问答时把用户图片转成 query vector。
-# 返回/产出：返回固定维度多模态向量；没有 DashScope key、SDK 或模型失败时返回 None，原有检索链路不受影响。
+"""多模态 embedding：把文本和图片映射到同一向量空间。
+
+建库时为视觉 chunk 写入 ``multimodal_vector``；图片问答时把用户图片转成
+query vector。没有 Key、SDK 缺失或模型调用失败时返回 None，调用方沿用
+原有检索链路。
+"""
+
 import os
 import logging
 import textwrap

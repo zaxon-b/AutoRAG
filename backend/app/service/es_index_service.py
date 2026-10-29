@@ -31,6 +31,7 @@ _DOCUMENT_FIELDS = {
     "chunk_id",
     "modality",
     "page",
+    "source_pages",
     "section_title",
     "content_text",
     "object_name",
@@ -74,8 +75,32 @@ def ensure_index() -> None:
                 f"Elasticsearch index {INDEX_NAME!r} uses the old chunk schema; "
                 "delete it once before rebuilding the manual."
             )
+        _ensure_incremental_mappings(es)
         return
     es.indices.create(index=INDEX_NAME, body=_index_mapping())
+
+
+def _ensure_incremental_mappings(es: Elasticsearch) -> None:
+    """Add fields that older documents in the same index do not declare yet."""
+
+    properties = (
+        es.indices.get_mapping(index=INDEX_NAME)
+        .get(INDEX_NAME, {})
+        .get("mappings", {})
+        .get("properties", {})
+    )
+    missing: dict[str, Any] = {}
+    if "source_pages" not in properties:
+        missing["source_pages"] = {"type": "integer"}
+    if IMAGE_EMBEDDING_V2_FIELD not in properties:
+        missing[IMAGE_EMBEDDING_V2_FIELD] = {
+            "type": "dense_vector",
+            "dims": IMAGE_EMBEDDING_DIM,
+            "index": True,
+            "similarity": "cosine",
+        }
+    if missing:
+        es.indices.put_mapping(index=INDEX_NAME, properties=missing)
 
 
 def prepare_index_for_ingestion() -> None:
@@ -120,11 +145,9 @@ def index_chunks(chunks: list[dict[str, Any]]) -> None:
     operations: list[dict[str, Any]] = []
     source_chunks = [chunk for chunk in chunks if _should_index(chunk)]
     for chunk, document in zip(source_chunks, documents):
-        es_doc_id = (
-            chunk.get("_es_doc_id")
-            or chunk.get("prototype_id")
-            or document["chunk_id"]
-        )
+        # One persisted chunk maps to one ES document.  ``prototype_id`` is no
+        # longer a document identity for icons.
+        es_doc_id = chunk.get("_es_doc_id") or document["chunk_id"]
         operations.append({"index": {"_index": INDEX_NAME, "_id": es_doc_id}})
         operations.append(document)
     _es_client().bulk(operations=operations, refresh=True)
@@ -293,6 +316,7 @@ def _index_mapping() -> dict[str, Any]:
                 "chunk_id": {"type": "keyword"},
                 "modality": {"type": "keyword"},
                 "page": {"type": "integer"},
+                "source_pages": {"type": "integer"},
                 "section_title": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}}},
                 "content_text": {"type": "text", "analyzer": "standard"},
                 "object_name": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 255}}},
@@ -397,7 +421,9 @@ def _should_index(chunk: dict[str, Any]) -> bool:
     if modality == "text":
         return chunk.get("is_leaf") is True
     if modality == "icon":
-        return bool(chunk.get("prototype_id"))
+        # Every valid icon chunk is its group's one searchable document; it no
+        # longer needs a prototype row to enter the index.
+        return bool(chunk.get("chunk_id"))
     return modality in DEFAULT_IMAGE_SEARCH_MODALITIES
 
 

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any
 
+from sqlalchemy import cast, or_
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from models.manual import ManualChunk, ManualImageOccurrence
@@ -160,11 +163,19 @@ def _same_page_text_candidates(
     pages = _visual_anchor_pages(db, manual_id, visual_anchor)
     if not pages:
         return []
+    # A leaf can span several pages while page_number only stores its start.
+    # Match any real source page so an icon on a later page still pulls in the
+    # body text that begins on an earlier one.
+    page_filters = [ManualChunk.page_number.in_(pages)]
+    page_filters.extend(
+        ManualChunk.source_pages.op("@>")(cast(json.dumps([page]), JSONB))
+        for page in pages
+    )
     rows = (
         db.query(ManualChunk)
         .filter(
             ManualChunk.manual_id == manual_id,
-            ManualChunk.page_number.in_(pages),
+            or_(*page_filters),
             ManualChunk.modality == "text",
             ManualChunk.is_leaf.is_(True),
         )
@@ -233,6 +244,7 @@ def _row_to_candidate(row: ManualChunk, method: str) -> dict[str, Any]:
         "chunk_id": row.chunk_id,
         "manual_id": row.manual_id,
         "page": row.page_number,
+        "source_pages": row.source_pages,
         "modality": row.modality,
         "section_title": row.section_title,
         "content_text": row.content_text,
@@ -253,6 +265,7 @@ def _format_evidence(chunk: dict[str, Any], score: float | None = None) -> dict[
     return {
         "chunk_id": chunk.get("chunk_id") or chunk.get("es_doc_id") or "",
         "page": int(chunk.get("page") or chunk.get("page_number") or 0),
+        "source_pages": chunk.get("source_pages"),
         "modality": "text",
         "section_title": chunk.get("section_title"),
         "content_text": chunk.get("content_text"),

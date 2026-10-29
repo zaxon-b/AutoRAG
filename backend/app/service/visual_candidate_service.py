@@ -92,9 +92,9 @@ def deduplicate_visual_candidates(
             group_id = str(item.get("icon_group_id") or "")
             group = icon_groups.get(group_id) if group_id else None
             if group is not None:
-                # ES may return any of the group's 1-N prototypes. Preserve that
-                # prototype image for VLM verification while attaching the
-                # single persisted group chunk's canonical metadata.
+                # One group now owns one icon chunk and one ES document, so the
+                # match already carries the group's identity. Attach the
+                # persisted canonical metadata defensively.
                 candidate.update(_group_metadata(group, candidate))
                 candidate["icon_group_id"] = group_id
 

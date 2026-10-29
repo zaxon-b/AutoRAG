@@ -14,7 +14,7 @@ from service.embedding_service import embed_texts
 from service.es_index_service import INDEX_NAME, _es_client, ensure_index, index_chunks
 from service.hierarchical_chunk_service import build_hierarchical_text_chunks
 from service.layout_analysis_service import analyze_pdf_layout
-from service.manual_ingestion_service import _payload_to_row
+from service.manual_ingestion_service import _payload_to_row, ensure_tables
 from utils.database import SessionLocal
 
 
@@ -25,6 +25,7 @@ def main() -> None:
 
     db = SessionLocal()
     try:
+        ensure_tables(db)
         manual = db.query(Manual).filter(Manual.manual_id == args.manual_id).one()
         pdf_path = Path(manual.file_path)
         layout_by_page = analyze_pdf_layout(pdf_path)

@@ -1,183 +1,96 @@
-# 模块说明：docker-compose.yml 定义本地开发/演示环境需要启动的所有容器服务。
-# 调用关系：执行 docker compose up/down/build 时 Docker Compose 会读取这个文件。
-# 返回/产出：启动 FastAPI 后端、Elasticsearch、PostgreSQL 以及它们需要的网络和数据卷。
-# 逐行注释：services 下面定义每一个要启动的容器服务。
+version: '3.8'
 services:
-# 逐行注释：autorag_api 是当前项目的 FastAPI 后端服务。
-  autorag_api:
-# 逐行注释：build 表示这个服务不是直接拉镜像，而是根据 Dockerfile 本地构建。
+  # FastAPI 后端：源码和评测目录通过 volume 挂载进容器，改代码后重启即可生效。
+  swxy_api:
     build:
-# 逐行注释：context 指定构建上下文目录，也就是 Dockerfile 能看到的源码目录。
       context: ./app
-# 逐行注释：dockerfile 指定使用 ./app/Dockerfile 来构建后端镜像。
       dockerfile: Dockerfile
-# 逐行注释：hostname 是容器内部主机名，方便容器网络中识别。
-    hostname: autorag_api
-# 逐行注释：container_name 指定固定容器名，方便 docker logs/exec 查找。
-    container_name: autorag_api
-# 逐行注释：environment 下面是直接写入容器的环境变量。
+    hostname: swxy_api
+    container_name: swxy_api
     environment:
-# 逐行注释：HF_ENDPOINT 设置 HuggingFace 镜像地址，避免模型/依赖下载过慢。
       - HF_ENDPOINT=https://hf-mirror.com
-# 逐行注释：DATABASE_URL 是后端连接 PostgreSQL 的数据库连接串。
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@autorag_pg:5432/${POSTGRES_DB:-autorag}
-# 逐行注释：ES_HOST 是后端连接 Elasticsearch 的地址。
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@gsk_pg:5432/gsk
       - ES_HOST=http://es01:9200
-# 逐行注释：ELASTICSEARCH_URL 是兼容另一种变量名的 ES 地址。
       - ELASTICSEARCH_URL=http://es01:9200
-# 逐行注释：MANUAL_INDEX_NAME 指定 ES 中存手册 chunk 的索引名。
       - MANUAL_INDEX_NAME=manual_chunks_demo
-# 逐行注释：DEMO_MANUAL_ID 指定默认手册 ID。
       - DEMO_MANUAL_ID=demo_manual
-# 逐行注释：ROOT_PATH 留空，表示后端直接挂在根路径，不额外加 URL 前缀。
       - ROOT_PATH=
-# 逐行注释：extra_hosts 让容器可以访问宿主机地址 host.docker.internal。
     extra_hosts:
-# 逐行注释：把 host.docker.internal 映射到宿主机网关，方便容器访问本机服务。
       - "host.docker.internal:host-gateway"
-# 逐行注释：env_file 会额外加载 backend/.env 中的密钥和模型配置。
     env_file:
-# 逐行注释：.env 通常放 LLM/VLM/DashScope/Elasticsearch 密码等本地配置。
       - .env
-# 逐行注释：ports 定义宿主机端口到容器端口的映射。
     ports:
-# 逐行注释：把宿主机 8000 映射到容器 8000，因此浏览器访问 localhost:8000 就到 FastAPI。
-      - "8000:8000"  # 只保留应用服务的端口映射
-# 逐行注释：volumes 定义目录挂载和数据卷挂载。
+      - "8000:8000"
     volumes:
-# 逐行注释：把本地 ./app 挂到容器 /app，方便开发时修改代码后容器立即看到。
       - ./app:/app
-# 逐行注释：把仓库根目录的当前评测数据、结果和脚本挂到容器 /app/evals。
       - ../evals:/app/evals
-# 逐行注释：挂载 nltk_data 数据卷，避免相关 NLP 数据每次重建容器都丢失。
       - nltk_data:/usr/local/nltk_data
-# 逐行注释：entrypoint 指定容器启动时先执行等待数据库的脚本。
     entrypoint: ["sh", "/app/start.sh"]
-# 逐行注释：command 是传给 start.sh 的真实应用启动命令。
     command: ["uvicorn", "app_main:app", "--host", "0.0.0.0", "--port", "8000"]
-# 逐行注释：restart 表示容器异常停止时自动重启，除非用户手动停止。
     restart: unless-stopped
-# 逐行注释：depends_on 表示后端服务依赖 PostgreSQL 和 ES 先启动。
     depends_on:
-# 逐行注释：后端需要 autorag_pg 提供 PostgreSQL 数据库。
-      - autorag_pg
-# 逐行注释：后端需要 es01 提供 Elasticsearch 检索服务。
+      - gsk_pg
       - es01
-# 逐行注释：networks 指定该服务加入哪个 Docker 内部网络。
     networks:
-# 逐行注释：加入 autorag_network 后，容器之间可以用服务名互相访问。
-      - autorag_network
+      - gsk_network
 
-# 逐行注释：es01 是 Elasticsearch 服务，用来存 chunk、向量和倒排索引。
+  # 单节点 Elasticsearch；开启密码认证但关闭 TLS，仅用于本地开发。
   es01:
-# 逐行注释：固定 ES 容器名。
-    container_name: autorag_es
-# 逐行注释：使用官方 Elasticsearch 8.11.3 镜像。
+    container_name: gsk-es-01
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.3
-# 逐行注释：volumes 定义 ES 数据持久化。
     volumes:
-# 逐行注释：把 ES 数据目录挂到 Docker 数据卷，避免容器删除后索引丢失。
-      - autorag_esdata:/usr/share/elasticsearch/data
-# 逐行注释：读取 .env 中的 ES 密码、时区、内存限制等变量。
+      - gsk_esdata01:/usr/share/elasticsearch/data
     env_file: .env
-# 逐行注释：environment 是 ES 自身运行配置。
     environment:
-# 逐行注释：设置 ES 节点名。
       - node.name=es01
-# 逐行注释：设置 ES 内置 elastic 用户密码，值来自 .env。
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-# 逐行注释：禁用内存锁定，降低本地启动门槛。
       - bootstrap.memory_lock=false
-# 逐行注释：单节点发现模式，适合本地 Demo，不需要 ES 集群。
       - discovery.type=single-node
-# 逐行注释：开启 ES 安全功能，需要用户名密码访问。
       - xpack.security.enabled=true
-# 逐行注释：关闭 HTTP SSL，本地用 http 访问即可。
       - xpack.security.http.ssl.enabled=false
-# 逐行注释：关闭传输层 SSL，本地单节点不需要。
       - xpack.security.transport.ssl.enabled=false
-# 逐行注释：设置磁盘低水位线，避免本地磁盘紧张时 ES 过早拒绝写入。
       - cluster.routing.allocation.disk.watermark.low=5gb
-# 逐行注释：设置磁盘高水位线。
       - cluster.routing.allocation.disk.watermark.high=3gb
-# 逐行注释：设置磁盘 flood stage 水位线。
       - cluster.routing.allocation.disk.watermark.flood_stage=2gb
-# 逐行注释：设置容器时区，值来自 .env。
       - TZ=${TIMEZONE}
-# 逐行注释：限制 ES JVM 堆内存为 512MB，适合本地 Mac 演示。
       - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
-# 逐行注释：限制容器总内存，值来自 .env。
     mem_limit: ${MEM_LIMIT}
-# 逐行注释：ulimits 设置容器资源限制。
     ulimits:
-# 逐行注释：memlock 是内存锁限制，这里放开但上面未启用内存锁。
       memlock:
-# 逐行注释：soft 是软限制。
         soft: -1
-# 逐行注释：hard 是硬限制。
         hard: -1
-# 逐行注释：healthcheck 定义 ES 是否健康的检测方式。
     healthcheck:
-# 逐行注释：通过 curl localhost:9200 检查 ES HTTP 服务是否可访问。
       test: ["CMD-SHELL", "curl http://localhost:9200"]
-# 逐行注释：每 10 秒检查一次。
       interval: 10s
-# 逐行注释：单次检查超时时间为 10 秒。
       timeout: 10s
-# 逐行注释：最多重试 120 次，给 ES 较长启动时间。
       retries: 120
-# 逐行注释：失败时自动重启 ES 容器。
     restart: on-failure
-# 逐行注释：让 ES 加入同一个 Docker 网络。
     networks:
-# 逐行注释：加入 autorag_network，后端可以通过 http://es01:9200 访问它。
-      - autorag_network
+      - gsk_network
 
-# 逐行注释：autorag_pg 是 PostgreSQL 数据库服务。
-  autorag_pg:
-# 逐行注释：固定 PostgreSQL 容器名。
-    container_name: autorag_pg
-# 逐行注释：使用轻量版 postgres:15-alpine 镜像。
+  # 开发用 PostgreSQL；数据卷持久化，首次启动时执行 init.sql。
+  gsk_pg:
+    container_name: gsk_pg
     image: postgres:15-alpine
-# 逐行注释：environment 定义数据库初始化账号密码和库名。
     environment:
-# 逐行注释：设置 postgres 用户密码。
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-# 逐行注释：设置默认数据库用户名。
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       - POSTGRES_USER=postgres
-# 逐行注释：设置默认数据库名。
-      - POSTGRES_DB=${POSTGRES_DB:-autorag}
-# 逐行注释：volumes 定义数据库数据和初始化 SQL 挂载。
+      - POSTGRES_DB=gsk
     volumes:
-# 逐行注释：把 PostgreSQL 数据目录挂到数据卷，避免数据随容器删除而丢失。
       - pg_data:/var/lib/postgresql/data
-# 逐行注释：第一次初始化数据库时执行 init.sql。
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-# 逐行注释：除非手动停止，否则 PostgreSQL 停掉后自动重启。
     restart: unless-stopped
-# 逐行注释：让 PostgreSQL 加入项目网络。
     networks:
-# 逐行注释：加入 autorag_network，后端可以通过主机名 autorag_pg 访问它。
-      - autorag_network
+      - gsk_network
 
-# 逐行注释：volumes 定义 Docker 管理的数据卷。
 volumes:
-# 逐行注释：Elasticsearch 数据卷。
-  autorag_esdata:
-# 逐行注释：使用 Docker 本地卷驱动。
+  gsk_esdata01:
     driver: local
-# 逐行注释：PostgreSQL 数据卷。
   pg_data:
-# 逐行注释：使用 Docker 本地卷驱动。
     driver: local
-# 逐行注释：NLTK 数据卷。
   nltk_data:
-# 逐行注释：使用 Docker 本地卷驱动。
     driver: local
 
-# 逐行注释：networks 定义 Docker 内部网络。
 networks:
-# 逐行注释：项目服务共用的桥接网络。
-  autorag_network:
-# 逐行注释：bridge 表示使用 Docker 默认桥接网络模式。
+  gsk_network:
     driver: bridge

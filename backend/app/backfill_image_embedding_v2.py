@@ -39,11 +39,34 @@ def local_image_path(value: str | None) -> Path | None:
     return path if path.is_absolute() else storage_root() / path
 
 
+def assert_chunk_identity(documents: list[dict]) -> None:
+    """Reject an old prototype-keyed icon index before writing vectors.
+
+    The current index keys every document by ``chunk_id``.  If an icon document
+    is still keyed by a prototype ID, updating it would patch the wrong record,
+    so the command stops and asks for a rebuild instead.
+    """
+
+    legacy = [
+        document.get("_id")
+        for document in documents
+        if document.get("modality") == "icon"
+        and str(document.get("_id") or "") != str(document.get("chunk_id") or "")
+    ]
+    if legacy:
+        preview = ", ".join(str(value) for value in legacy[:5])
+        raise RuntimeError(
+            "Icon documents are keyed by prototype ID, not chunk_id "
+            f"({preview}). Rebuild the icon index before backfilling vectors."
+        )
+
+
 def main() -> None:
     args = parse_args()
     if args.batch_size <= 0:
         raise ValueError("--batch-size must be positive")
     documents = visual_documents_for_image_reembedding(args.manual_id)
+    assert_chunk_identity(documents)
     if args.limit:
         documents = documents[: args.limit]
 

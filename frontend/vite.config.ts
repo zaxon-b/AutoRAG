@@ -21,15 +21,6 @@ export default defineConfig(() => {
       // 监听所有网络接口，方便 Docker、局域网设备或其他容器访问开发服务器。
       // 这不等于生产部署已经安全开放，仍需防火墙和反向代理配置。
       host: '0.0.0.0',
-
-      // 本地开发默认把 API 与静态证据请求转发到 FastAPI，因此无需提交
-      // frontend/.env。生产构建仍可通过 VITE_API_BASE 指向反向代理地址。
-      proxy: {
-        '/health': 'http://localhost:8000',
-        '/manuals': 'http://localhost:8000',
-        '/qa': 'http://localhost:8000',
-        '/storage': 'http://localhost:8000',
-      },
     },
 
     resolve: {

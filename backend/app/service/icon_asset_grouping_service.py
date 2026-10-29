@@ -36,7 +36,6 @@ MAX_REVIEW_ITEMS = max(
     4,
     min(24, int(os.getenv("ICON_GROUP_VLM_MAX_ITEMS", "12"))),
 )
-MAX_PROTOTYPES = max(1, min(5, int(os.getenv("ICON_GROUP_MAX_PROTOTYPES", "3"))))
 
 
 def build_native_icon_groups(
@@ -167,14 +166,23 @@ def _review_component(
     units: dict[str, dict[str, Any]],
     edges: set[tuple[str, str]],
 ) -> list[list[str]]:
+    """Split a candidate component with the reviewed partitions only.
+
+    The partition returned by the VLM is the final grouping decision; there is
+    no second pairwise confirmation pass.  Overlapping review batches may
+    disagree, so a pair is merged only when at least one batch put the two
+    units in the same accepted partition and no batch separated them.
+    """
+
     api_key = _clean_env(os.getenv("VLM_API_KEY"))
     if not api_key:
         raise RuntimeError(
             "Cross-fingerprint icon candidates require VLM group review; "
             "they cannot be finalized from pHash/vector thresholds alone."
         )
-    parent = {unit_id: unit_id for unit_id in component}
-    pair_reviews: dict[tuple[str, str], bool] = {}
+
+    pair_support: dict[tuple[str, str], int] = {}
+    pair_conflict: set[tuple[str, str]] = set()
     for batch in _edge_cover_batches(component, edges):
         if len(batch) < 2:
             continue
@@ -184,42 +192,86 @@ def _review_component(
                 "VLM icon-group review failed for candidate units: "
                 + ", ".join(batch)
             )
-        for raw_group in verdict:
-            if not isinstance(raw_group, dict):
-                continue
-            try:
-                confidence = float(raw_group.get("confidence") or 0.0)
-            except (TypeError, ValueError):
-                confidence = 0.0
-            valid: list[int] = []
-            for value in raw_group.get("indices") or []:
-                try:
-                    index = int(value)
-                except (TypeError, ValueError):
+        groups, _ = _accepted_partitions(verdict, batch)
+        for group in groups:
+            for left_index, left in enumerate(group):
+                for right in group[left_index + 1 :]:
+                    pair = tuple(sorted((left, right)))
+                    pair_support[pair] = pair_support.get(pair, 0) + 1
+        for left_index, left in enumerate(batch):
+            for right in batch[left_index + 1 :]:
+                pair = tuple(sorted((left, right)))
+                if pair in pair_conflict:
                     continue
-                if 1 <= index <= len(batch):
-                    valid.append(index)
-            if len(valid) < 2 or confidence < VLM_GROUP_CONFIDENCE:
-                continue
-            first = batch[valid[0] - 1]
-            for index in valid[1:]:
-                other = batch[index - 1]
-                pair = tuple(sorted((first, other)))
-                confirmed = pair_reviews.get(pair)
-                if confirmed is None:
-                    confirmed = _vlm_confirm_same_identity(
-                        units[first],
-                        units[other],
-                        api_key,
-                    )
-                    pair_reviews[pair] = confirmed
-                if confirmed:
-                    _union(parent, first, other)
+                same_group = any(left in group and right in group for group in groups)
+                # An unassigned unit is conservatively its own group, so any
+                # pair the review did not place together is a conflict.
+                if not same_group:
+                    pair_conflict.add(pair)
+
+    parent = {unit_id: unit_id for unit_id in component}
+    for pair, support in pair_support.items():
+        if support > 0 and pair not in pair_conflict:
+            _union(parent, pair[0], pair[1])
 
     result_by_root: dict[str, list[str]] = {}
     for unit_id in component:
         result_by_root.setdefault(_find(parent, unit_id), []).append(unit_id)
     return [sorted(values) for values in result_by_root.values()]
+
+
+def _accepted_partitions(
+    verdict: list[dict[str, Any]],
+    batch: list[str],
+) -> tuple[list[list[str]], set[str]]:
+    """Turn one VLM verdict into valid unit groups.
+
+    Every batch item is assigned at most once.  Items that are missing from the
+    verdict, repeated across groups, below the confidence floor or grouped
+    alone stay unassigned and therefore become conservative singleton groups.
+    """
+
+    index_groups: list[list[int]] = []
+    for raw_group in verdict:
+        if not isinstance(raw_group, dict):
+            continue
+        try:
+            confidence = float(raw_group.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence < VLM_GROUP_CONFIDENCE:
+            continue
+        indices: list[int] = []
+        for value in raw_group.get("indices") or []:
+            try:
+                index = int(value)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= index <= len(batch) and index not in indices:
+                indices.append(index)
+        if len(indices) >= 2:
+            index_groups.append(indices)
+
+    membership: dict[int, int] = {}
+    ambiguous: set[int] = set()
+    for group_index, indices in enumerate(index_groups):
+        for index in indices:
+            if index in membership and membership[index] != group_index:
+                ambiguous.add(index)
+            else:
+                membership[index] = group_index
+
+    groups: list[list[str]] = []
+    for group_index, indices in enumerate(index_groups):
+        members = [
+            batch[index - 1]
+            for index in indices
+            if index not in ambiguous and membership.get(index) == group_index
+        ]
+        if len(members) >= 2:
+            groups.append(members)
+    assigned = {batch[index - 1] for index in membership if index not in ambiguous}
+    return groups, assigned
 
 
 def _edge_cover_batches(
@@ -333,80 +385,6 @@ def _vlm_partition(
     except Exception as error:
         logger.warning("Native icon group VLM review failed: size=%s error=%s", len(units), error)
         return None
-    finally:
-        sheet.unlink(missing_ok=True)
-
-
-def _vlm_confirm_same_identity(
-    left: dict[str, Any],
-    right: dict[str, Any],
-    api_key: str,
-) -> bool:
-    """Conservatively verify every cross-asset merge proposed by the group sheet."""
-
-    sheet = _contact_sheet([left, right])
-    if sheet is None:
-        raise RuntimeError(
-            f"Unable to render icon-pair review sheet: {left['unit_id']}, {right['unit_id']}"
-        )
-    try:
-        from openai import OpenAI
-
-        prompt = {
-            "task": (
-                "二次核验编号1和2是否是同一个图标身份。只有轮廓、方向、内部语义符号"
-                "和颜色状态均一致时才返回true。允许尺寸、分辨率、抗锯齿、压缩和轻微"
-                "拉伸不同。以下情况必须返回false：左右/上下方向相反、镜像；内部是温度计"
-                "与感叹号等不同符号；状态点、斜杠、加减号或关键部件不同；只是主题相近或"
-                "附近名称相近。不要根据candidate_names强行合并。只输出JSON。"
-            ),
-            "item_1_candidate_names": _unit_candidate_names(left),
-            "item_2_candidate_names": _unit_candidate_names(right),
-            "output": {
-                "same_identity": False,
-                "confidence": 0.0,
-                "key_visual_reason": "short string",
-            },
-        }
-        client = OpenAI(
-            api_key=api_key,
-            base_url=_clean_env(os.getenv("VLM_BASE_URL"))
-            or _clean_env(os.getenv("DASHSCOPE_BASE_URL")),
-        )
-        response = client.chat.completions.create(
-            model=_clean_env(os.getenv("VLM_MODEL")) or "qwen-vl-plus",
-            temperature=0,
-            max_tokens=220,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": json.dumps(prompt, ensure_ascii=False)},
-                        {"type": "image_url", "image_url": {"url": _image_data_url(sheet)}},
-                    ],
-                }
-            ],
-        )
-        raw_response = str(response.choices[0].message.content or "{}")
-        parsed = _parse_json_object(raw_response)
-        same_identity = parsed.get("same_identity")
-        if not isinstance(same_identity, bool):
-            raise RuntimeError(
-                "Icon-pair VLM returned no boolean same_identity: "
-                f"{left['unit_id']}, {right['unit_id']}, response={raw_response[:500]!r}"
-            )
-        try:
-            confidence = float(parsed.get("confidence") or 0.0)
-        except (TypeError, ValueError):
-            confidence = 0.0
-        return same_identity and confidence >= 0.90
-    except RuntimeError:
-        raise
-    except Exception as error:
-        raise RuntimeError(
-            "Icon-pair VLM review failed for "
-            f"{left['unit_id']}, {right['unit_id']}: {error}"
-        ) from error
     finally:
         sheet.unlink(missing_ok=True)
 
@@ -619,6 +597,13 @@ def _select_prototypes(
     group_id: str,
     units: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Pick the single representative image that online retrieval indexes.
+
+    Kept as a list so the persisted prototype row and existing callers keep
+    their shape, but only the top-ranked unit is returned: one group produces
+    one icon chunk and one Elasticsearch document.
+    """
+
     scored: list[tuple[float, dict[str, Any]]] = []
     for unit in units:
         similarities = [
@@ -630,22 +615,13 @@ def _select_prototypes(
         score = 0.65 * centrality + 0.35 * float(unit.get("quality_score") or 0.0)
         scored.append((score, unit))
     scored.sort(key=lambda item: (item[0], item[1]["unit_id"]), reverse=True)
-    selected: list[tuple[float, dict[str, Any]]] = [scored[0]]
 
-    for score, candidate in scored[1:]:
-        if len(selected) >= MAX_PROTOTYPES:
-            break
-        closest = max(_unit_similarity(candidate, unit) for _, unit in selected)
-        phash_far = min(
-            _hamming(candidate.get("phash"), unit.get("phash"))
-            for _, unit in selected
-        ) > 6
-        if closest < 0.96 and phash_far:
-            selected.append((score, candidate))
-
+    score, unit = scored[0]
+    if not unit.get("image_path"):
+        return []
     return [
         {
-            "prototype_id": f"{group_id}_prototype_{rank}",
+            "prototype_id": f"{group_id}_prototype_1",
             "asset_id": unit["asset_id"],
             "orientation": unit["orientation"],
             "image_path": unit["image_path"],
@@ -653,10 +629,8 @@ def _select_prototypes(
             "dominant_colour": unit.get("colour"),
             "quality_score": round(score, 6),
             "image_vector": unit.get("vector"),
-            "prototype_rank": rank,
+            "prototype_rank": 1,
         }
-        for rank, (score, unit) in enumerate(selected, start=1)
-        if unit.get("image_path")
     ]
 
 

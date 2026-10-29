@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 from models.manual import ManualChunk
 from router.qa_rt import (
+    _apply_retrieval_anchor,
     _apply_vlm_verification,
     _build_image_answer_question,
     _build_insufficient_text_answer,
@@ -63,7 +64,7 @@ APP_DIR = Path(__file__).resolve().parent
 REPOSITORY_EVAL_DIR = APP_DIR.parent.parent / "evals"
 EVAL_DIR = REPOSITORY_EVAL_DIR if REPOSITORY_EVAL_DIR.exists() else APP_DIR / "evals"
 DEFAULT_TEXT_DATASET = EVAL_DIR / "datasets" / "owner_manual_text_eval_v4.jsonl"
-DEFAULT_IMAGE_DATASET = EVAL_DIR / "datasets" / "owner_manual_image_eval_native_v3.jsonl"
+DEFAULT_IMAGE_DATASET = EVAL_DIR / "datasets" / "owner_manual_image_eval_native_v4.jsonl"
 DEFAULT_RESULTS_DIR = EVAL_DIR / "results" / "runs"
 
 REFUSAL_PATTERN = re.compile(
@@ -104,7 +105,24 @@ def parse_args() -> argparse.Namespace:
         help="Evaluate only the requested image case ID; repeat for multiple cases.",
     )
     parser.add_argument("--skip-generation", action="store_true", help="Run retrieval/refusal stages without answer generation.")
-    parser.add_argument("--skip-vlm", action="store_true", help="Skip image understanding and VLM candidate verification.")
+    parser.add_argument(
+        "--skip-first-pass-vlm",
+        action="store_true",
+        help="Skip only the first-pass image understanding used to build the body query.",
+    )
+    parser.add_argument(
+        "--enable-candidate-vlm",
+        action="store_true",
+        help="Enable candidate-changing VLM verification; production keeps it disabled.",
+    )
+    parser.add_argument(
+        "--skip-vlm",
+        action="store_true",
+        help=(
+            "Legacy switch: skip both first-pass understanding and candidate "
+            "verification. It does not describe the production image-QA path."
+        ),
+    )
     parser.add_argument(
         "--skip-text-support",
         action="store_true",
@@ -113,8 +131,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--image-vector-variant",
         choices=["native", "alpha_white"],
-        default="native",
-        help="Choose the current or shadow image-vector field for the complete visual ablation matrix.",
+        default="alpha_white",
+        help="Production defaults to alpha_white; native is an explicit ablation.",
     )
     parser.add_argument(
         "--visual-fusion-profile",
@@ -127,8 +145,13 @@ def parse_args() -> argparse.Namespace:
             "rrf_multimodal_weighted_opencv",
             "rrf_image_weighted_opencv",
         ],
-        default="legacy_hard_gate",
-        help="Candidate route sent to the VLM; all other profiles are still measured as retrieval ablations.",
+        default="rrf_equal",
+        help="Production defaults to equal-weight RRF; other profiles are explicit ablations.",
+    )
+    parser.add_argument(
+        "--enable-opencv-ablation",
+        action="store_true",
+        help="Run the OpenCV route for offline diagnosis; production does not rank with it.",
     )
     parser.add_argument(
         "--vlm-top-k",
@@ -434,17 +457,6 @@ def evaluate_text_record(
     }
 
 
-def icon_group_maps(db) -> tuple[dict[str, str], dict[str, str]]:
-    rows = (
-        db.query(ManualChunk)
-        .filter(ManualChunk.modality == "icon", ManualChunk.icon_group_id.isnot(None))
-        .all()
-    )
-    chunk_to_group = {row.chunk_id: row.icon_group_id for row in rows}
-    group_to_group = {row.icon_group_id: row.icon_group_id for row in rows}
-    return chunk_to_group, group_to_group
-
-
 def visual_candidate_snapshot(items: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
     fields = (
         "chunk_id",
@@ -478,8 +490,9 @@ def evaluate_image_record(
     dataset_path: Path,
     top_k: int,
     skip_generation: bool,
-    skip_vlm: bool,
-    chunk_to_group: dict[str, str],
+    first_pass_vlm: bool,
+    candidate_vlm: bool,
+    use_opencv: bool,
     image_vector_variant: str,
     visual_fusion_profile: str,
     skip_text_support: bool,
@@ -500,25 +513,18 @@ def evaluate_image_record(
         or []
     )
     visual_gold_type = record.get("visual_gold_type") or (
-        "icon_group" if expected_groups else "visual_chunk" if expected_visual_chunks else "none"
+        "visual_chunk" if expected_visual_chunks else "none"
     )
-    # Icon candidates are scored by canonical group; ordinary visual chunks
-    # are scored by their exact audited chunk IDs.
-    visual_gold = expected_groups if expected_groups else list(expected_visual_chunks)
+    # Every persisted visual object now has exactly one chunk (an icon group
+    # owns one icon chunk), so icon and operation hits are scored by the same
+    # visual chunk ID.  Group IDs remain available for diagnostics only.
+    visual_gold = list(expected_visual_chunks)
     legacy_non_icon = record.get("negative_type") == "manual_non_icon_figure"
 
-    # A visual-only ablation still runs the candidate-verification VLM, but it
-    # does not need the separate first-pass description because verification is
-    # intentionally image-only and text support/answer generation are disabled.
-    skip_first_pass_vision = skip_vlm or (skip_generation and skip_text_support)
-    if skip_first_pass_vision:
+    if not first_pass_vlm:
         vision = {
             "recognized_object": "unknown",
-            "visual_description": (
-                "First-pass vision skipped by visual-only evaluator."
-                if not skip_vlm
-                else "VLM skipped by evaluator."
-            ),
+            "visual_description": "First-pass vision skipped by evaluator.",
             "ocr_text": "",
             "candidate_names": [],
             "visual_keywords": [],
@@ -528,26 +534,26 @@ def evaluate_image_record(
             "image_type": "unknown",
             "is_target_icon": False,
             "classification_confidence": 0.0,
-            "classification_reason": (
-                "First-pass vision is not consumed by image-only candidate verification."
-                if not skip_vlm
-                else "VLM skipped by evaluator."
-            ),
+            "classification_reason": "First-pass vision skipped by evaluator.",
             "vision_error": None,
         }
     else:
         vision = understand_vehicle_image(image_path, question)
 
-    # Evaluation uses the same three visual retrieval functions and the same
-    # route-level deduplication/fusion as production.  No image_type gate is
-    # consulted, including for the 20 legacy PDF-figure rows.
+    # Evaluation uses the same production routes and the same route-level
+    # deduplication/fusion.  No image_type gate is consulted, including for the
+    # 20 legacy PDF-figure rows.
     image_items = retrieve_visual_chunks_by_image_embedding(
         manual_id,
         image_path,
         top_k=20,
         embedding_variant=image_vector_variant,
     )
-    opencv_items = retrieve_visual_chunks_by_opencv(db, manual_id, image_path, top_k=20)
+    opencv_items = (
+        retrieve_visual_chunks_by_opencv(db, manual_id, image_path, top_k=20)
+        if use_opencv
+        else []
+    )
     multimodal_items = retrieve_visual_chunks_by_multimodal(manual_id, image_path, top_k=20)
 
     image_groups = deduplicate_visual_candidates(db, manual_id, image_items, max_items=20)
@@ -622,7 +628,7 @@ def evaluate_image_record(
     pre_vlm_candidates = fusion_profiles[visual_fusion_profile]
     verification = None
     visual_candidates = list(pre_vlm_candidates)
-    if not skip_vlm and not vision.get("vision_error") and visual_candidates:
+    if candidate_vlm and not vision.get("vision_error") and visual_candidates:
         verification = verify_visual_candidates(
             image_path,
             visual_candidates,
@@ -631,32 +637,18 @@ def evaluate_image_record(
             top_k=vlm_top_k,
         )
         visual_candidates = _apply_vlm_verification(visual_candidates, verification)
+        visual_anchor = _verified_visual_anchor(visual_candidates)
+    elif visual_candidates:
+        # Production closes with the fused Top1 and marks it as the retrieval
+        # anchor, so the downstream body search runs without waiting for a
+        # verification flag that will never be set.
+        visual_anchor = _apply_retrieval_anchor(visual_candidates[0])
+    else:
+        visual_anchor = None
 
-    visual_anchor = _verified_visual_anchor(visual_candidates)
     visual_match = _build_visual_match([visual_anchor] if visual_anchor else visual_candidates)
     guardrail_refuse = _should_refuse_image_answer(visual_match, vision)
     accepted_visual_evidence = [visual_anchor] if visual_anchor else []
-
-    key_map = {**chunk_to_group}
-    candidate_lists = [
-        image_groups,
-        opencv_groups,
-        multimodal_groups,
-        equal_fusion,
-        multimodal_weighted_fusion,
-        image_weighted_fusion,
-        equal_opencv_fusion,
-        multimodal_weighted_opencv_fusion,
-        image_weighted_opencv_fusion,
-        legacy_gate,
-        pre_vlm_candidates,
-        accepted_visual_evidence,
-    ]
-    for item in [candidate for candidates in candidate_lists for candidate in candidates]:
-        chunk_id = str(item.get("chunk_id") or "")
-        group_id = str(item.get("icon_group_id") or "")
-        if chunk_id and group_id:
-            key_map[chunk_id] = group_id
 
     # A grouped icon can legitimately return a representative occurrence from
     # another page. Page accuracy is meaningful only for exact visual chunks.
@@ -666,20 +658,20 @@ def evaluate_image_record(
         else None
     )
     routes = {
-        "pure_visual_image_embedding": route_result(image_groups, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "multimodal_embedding": route_result(multimodal_groups, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "rrf_image_1_multimodal_1": route_result(equal_fusion, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "rrf_image_0_6_multimodal_1": route_result(multimodal_weighted_fusion, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "rrf_image_1_multimodal_0_6": route_result(image_weighted_fusion, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "rrf_image_1_multimodal_1_opencv_0_2": route_result(equal_opencv_fusion, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "rrf_image_0_6_multimodal_1_opencv_0_2": route_result(multimodal_weighted_opencv_fusion, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "rrf_image_1_multimodal_0_6_opencv_0_2": route_result(image_weighted_opencv_fusion, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "legacy_hard_gate": route_result(legacy_gate, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "full_chain_pre_vlm": route_result(pre_vlm_candidates, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
-        "full_chain_visual": route_result(accepted_visual_evidence, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
+        "pure_visual_image_embedding": route_result(image_groups, visual_gold, top_k, gold_pages=visual_pages),
+        "multimodal_embedding": route_result(multimodal_groups, visual_gold, top_k, gold_pages=visual_pages),
+        "rrf_image_1_multimodal_1": route_result(equal_fusion, visual_gold, top_k, gold_pages=visual_pages),
+        "rrf_image_0_6_multimodal_1": route_result(multimodal_weighted_fusion, visual_gold, top_k, gold_pages=visual_pages),
+        "rrf_image_1_multimodal_0_6": route_result(image_weighted_fusion, visual_gold, top_k, gold_pages=visual_pages),
+        "rrf_image_1_multimodal_1_opencv_0_2": route_result(equal_opencv_fusion, visual_gold, top_k, gold_pages=visual_pages),
+        "rrf_image_0_6_multimodal_1_opencv_0_2": route_result(multimodal_weighted_opencv_fusion, visual_gold, top_k, gold_pages=visual_pages),
+        "rrf_image_1_multimodal_0_6_opencv_0_2": route_result(image_weighted_opencv_fusion, visual_gold, top_k, gold_pages=visual_pages),
+        "legacy_hard_gate": route_result(legacy_gate, visual_gold, top_k, gold_pages=visual_pages),
+        "full_chain_pre_vlm": route_result(pre_vlm_candidates, visual_gold, top_k, gold_pages=visual_pages),
+        "full_chain_visual": route_result(accepted_visual_evidence, visual_gold, top_k, gold_pages=visual_pages),
     }
     diagnostic_routes = {
-        "opencv": route_result(opencv_groups, visual_gold, top_k, key_for_chunk=key_map, gold_pages=visual_pages),
+        "opencv": route_result(opencv_groups, visual_gold, top_k, gold_pages=visual_pages),
     }
 
     final_evidence: list[dict] = []
@@ -886,17 +878,11 @@ def aggregate_visual_cutoffs(
     for row in rows:
         if row.get("should_refuse"):
             continue
-        expected_groups = list(
-            row.get("expected_icon_group_ids")
-            or ([row["expected_icon_group_id"]] if row.get("expected_icon_group_id") else [])
-        )
+        # Visual hits are always scored against the unique visual chunk, for
+        # icon groups and operation figures alike.
         gold_keys = [
             str(value)
-            for value in (
-                expected_groups
-                if expected_groups
-                else row.get("expected_visual_chunk_ids") or []
-            )
+            for value in row.get("expected_visual_chunk_ids") or []
             if value
         ]
         if not gold_keys:
@@ -952,8 +938,7 @@ def aggregate_vlm_verification(rows: list[dict[str, Any]]) -> dict[str, Any]:
     answerable = [
         row
         for row in rows
-        if not row.get("should_refuse")
-        and (row.get("expected_icon_group_ids") or row.get("expected_visual_chunk_ids"))
+        if not row.get("should_refuse") and row.get("expected_visual_chunk_ids")
     ]
     evaluated = [row for row in answerable if row.get("vlm_evaluated")]
     candidate_cutoff = int(next((row.get("vlm_candidate_top_k") for row in evaluated), 0) or 0)
@@ -964,11 +949,7 @@ def aggregate_vlm_verification(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for row in evaluated:
         gold = set(
             str(value)
-            for value in (
-                row.get("expected_icon_group_ids")
-                or row.get("expected_visual_chunk_ids")
-                or []
-            )
+            for value in row.get("expected_visual_chunk_ids") or []
             if value
         )
         candidate_keys = set(
@@ -1685,9 +1666,7 @@ def rebuild_existing_report(args: argparse.Namespace) -> None:
                 )
             )
             visual_gold = (
-                expected_groups
-                if expected_groups
-                else record.get("expected_visual_chunk_ids")
+                record.get("expected_visual_chunk_ids")
                 or record.get("relevant_visual_chunk_ids")
                 or []
             )
@@ -1863,9 +1842,19 @@ def main() -> None:
     finally:
         text_db.close()
 
+    # The default image path mirrors production: first-pass understanding on,
+    # candidate verification and OpenCV off, alpha-white vectors and equal RRF.
+    # The legacy ``--skip-vlm`` still disables both VLM stages for old commands.
+    first_pass_vlm = not args.skip_first_pass_vlm and not args.skip_vlm
+    candidate_vlm = args.enable_candidate_vlm and not args.skip_vlm
+    use_opencv = (
+        args.enable_opencv_ablation
+        or args.visual_fusion_profile == "legacy_hard_gate"
+        or args.visual_fusion_profile.endswith("_opencv")
+    )
+
     db = SessionLocal()
     try:
-        chunk_to_group, _ = icon_group_maps(db)
         completed_image = {row["id"] for row in image_rows}
         for index, record in enumerate(image_records, start=1):
             if record["id"] in completed_image:
@@ -1879,8 +1868,9 @@ def main() -> None:
                         args.image_dataset,
                         args.top_k,
                         args.skip_generation,
-                        args.skip_vlm,
-                        chunk_to_group,
+                        first_pass_vlm,
+                        candidate_vlm,
+                        use_opencv,
                         args.image_vector_variant,
                         args.visual_fusion_profile,
                         args.skip_text_support,
@@ -1917,6 +1907,9 @@ def main() -> None:
             "top_k": args.top_k,
             "skip_generation": args.skip_generation,
             "skip_vlm": args.skip_vlm,
+            "first_pass_vlm": first_pass_vlm,
+            "candidate_vlm": candidate_vlm,
+            "opencv_ablation": use_opencv,
             "skip_text_support": args.skip_text_support,
             "image_vector_variant": args.image_vector_variant,
             "visual_fusion_profile": args.visual_fusion_profile,

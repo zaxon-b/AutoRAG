@@ -137,29 +137,32 @@ def _row_to_evidence(row: ManualChunk, score: float, match_method: str) -> dict[
 
 
 def _fit_token_budget(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Keep evidence in rank order while never exceeding the token budget.
+
+    An item that does not fit the remaining budget is skipped, including the
+    first one.  The budget is enforced here on the actual ``content_text`` that
+    will be sent, not on a possibly stale stored ``token_count``.
+    """
+
     result: list[dict[str, Any]] = []
     total = 0
     for item in items:
         size = _item_tokens(item)
-        if result and total + size > limit:
+        if total + size > limit:
             continue
-        if not result and size > limit:
-            # Keep the best evidence instead of returning nothing; prompt construction
-            # still applies its own hard truncation.
-            result.append(item)
-            break
-        result.append(item)
+        result.append({**item, "token_count": size})
         total += size
     return result
 
 
 def _item_tokens(item: dict[str, Any]) -> int:
-    value = item.get("token_count")
-    if isinstance(value, int) and value >= 0:
-        return value
-    from service.hierarchical_chunk_service import count_tokens
+    text = str(item.get("content_text") or "")
+    if text:
+        from service.hierarchical_chunk_service import count_tokens
 
-    return count_tokens(str(item.get("content_text") or ""))
+        return count_tokens(text)
+    value = item.get("token_count")
+    return value if isinstance(value, int) and value >= 0 else 0
 
 
 def _index_of(items: list[dict[str, Any]], chunk_id: str) -> int:

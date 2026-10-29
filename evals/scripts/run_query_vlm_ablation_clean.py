@@ -29,9 +29,9 @@ ROUTE = "rrf_image_1_multimodal_0_6"
 
 
 def anchor_matches(row: dict, cand: dict) -> bool:
-    if row.get("visual_gold_type") == "visual_chunk":
-        return str(cand.get("chunk_id")) in set(row.get("expected_visual_chunk_ids") or [])
-    return str(cand.get("icon_group_id")) in set(row.get("expected_icon_group_ids") or [])
+    # Every visual object owns exactly one chunk, so icon and operation hits
+    # are judged by the same audited chunk ID.
+    return str(cand.get("chunk_id")) in set(row.get("expected_visual_chunk_ids") or [])
 
 
 def minimal_vision(text_query: str, title: str) -> dict:

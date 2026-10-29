@@ -292,8 +292,9 @@ function DemoWorkspace() {
    * “图片查询”按钮的多模态问答处理函数。
    *
    * api.qa.imageQa 会把 manual_id、图片 File 和可选问题组装成 FormData。后端要
-   * 先完成图片理解、三路召回、门控融合、VLM 二验、正文检索和回答，最后才
-   * 一次性返回 JSON，因此这里不像文本问答那样处理中间流事件。
+   * 先完成图片理解、图片/多模态向量双路召回、RRF 融合、正文检索和回答，最后
+   * 一次性返回 JSON，因此这里不像文本问答那样处理中间流事件。候选改选式
+   * VLM 二验只保留为默认关闭的实验开关，不属于当前默认链路。
    */
   async function askImage() {
     // 与 Upload 按钮的 disabled 形成双重保护，确保 FormData 中一定有 image。
@@ -349,9 +350,9 @@ function DemoWorkspace() {
       {/* header 是语义化页头；它不保存状态，只展示项目名称和定位。 */}
       <header className="demo-header">
         <div className="demo-header__inner">
-          <h1 className="demo-title">AutoRAG</h1>
+          <h1 className="demo-title">看图查手册</h1>
           <p className="demo-subtitle">
-            基于多模态 RAG 的汽车手册问答系统
+            基于 VLM Agent 的新能源车主手册多模态 RAG 问答系统
           </p>
         </div>
       </header>

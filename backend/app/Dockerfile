@@ -1,5 +1,5 @@
 # 模块说明：Dockerfile 用来定义后端容器镜像怎么构建，Docker 会按顺序执行下面每一行。
-# 调用关系：docker compose build/up 会读取这个文件，构建 autorag_api 后端服务镜像。
+# 调用关系：docker compose build/up 会读取这个文件，构建 swxy_api 后端服务镜像。
 # 返回/产出：产出一个包含 Python 依赖和后端代码的 Docker 镜像。
 # 逐行注释：选择 Python 3.11.7 的 slim 基础镜像，体积比完整系统镜像更小。
 FROM python:3.11.7-slim
