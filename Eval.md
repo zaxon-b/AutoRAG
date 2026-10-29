@@ -1,6 +1,6 @@
 # AutoRAG Evaluation
 
-本文档汇总 AutoRAG 最终对外实验结果。仓库公开数据集、评测脚本和 summary，不公开逐题 audit、模型原始响应、Judge 缓存或临时 checkpoint。
+本文档汇总 AutoRAG 的评测结果。仓库公开数据集、评测脚本和 summary，不公开逐题 audit、模型原始响应、Judge 缓存或临时 checkpoint。
 
 ## 1. 评测原则
 
@@ -11,7 +11,7 @@
 3. **视觉检索**：icon 按 `icon_group_id` 评价，operation figure 按精确 `visual_chunk_id` 评价。
 4. **端到端回答**：独立 Judge 评价 Answer Correctness 与 Groundedness。
 
-这种分层口径用于判断问题发生在召回、合并、视觉识别、正文检索还是答案生成阶段。
+分层评测用于判断问题发生在召回、合并、视觉识别、正文检索还是答案生成阶段。
 
 ## 2. 数据集
 
@@ -40,8 +40,6 @@
 - Leaf Hit@5 从 **90% 提升到 98%**。
 - Cross-Encoder 的 Leaf-group Recall@3/@5 为 **95%/98%**。
 
-Cross-Encoder 的 Recall@5 为 **98%**。
-
 ## 4. AutoMerge 与必答点覆盖
 
 AutoMerge 的触发条件为：同一父节点至少命中 2 个直接子节点、命中比例不低于 0.5、父节点不超过 1,800 tokens，并且最终证据不超过 5,000 tokens。
@@ -64,7 +62,7 @@ AutoMerge 的触发条件为：同一父节点至少命中 2 个直接子节点�
 | 可回答问题 | 50 | **97.20%** | **99.60%** |
 | 应拒答问题 | 10 | 78.00% | 98.00% |
 
-文本答案由独立 GPT-5.6 Judge 逐题复核；简历使用的 **97.2%** 是 50 条可回答题口径，不是全部 60 条的总体正确率。
+文本答案由独立 GPT-5.6 Judge 逐题复核，50 条可回答题的 Answer Correctness 为 **97.2%**。
 
 ## 6. Icon group 压缩
 
@@ -102,7 +100,7 @@ group 负责统一视觉身份，occurrence 保留每次出现的页码、bbox�
 | RRF + OpenCV 0.2 | 77.14% | 97.14% | 100.00% | 0.8755 |
 | 旧图片分数硬门控 | 84.29% | 94.29% | 97.14% | 0.8993 |
 
-简历采用一位小数展示，即视觉 Hit@1 从约 **92.8% 提升到 95.7%**。当前在线代码使用更对称的 1.0/1.0 双路 RRF；端到端补测使用 1.0/0.6 缓存锚点，两者 Hit@1 相同，MRR 相差 0.0007。
+视觉 Hit@1 从约 **92.8% 提升到 95.7%**。当前在线代码使用更对称的 1.0/1.0 双路 RRF；端到端补测使用 1.0/0.6 缓存锚点，两者 Hit@1 相同，MRR 相差 0.0007。
 
 ### 7.3 VLM 二验
 
@@ -121,11 +119,11 @@ group 负责统一视觉身份，occurrence 保留每次出现的页码、bbox�
 | Answer Correctness | **93.14%** |
 | Groundedness | **98.43%** |
 
-简历按一位小数写作：必答点完整覆盖 **87%**、Answer Correctness **93.1%**、Groundedness **98.4%**。
+必答点完整覆盖 **87%**、Answer Correctness **93.1%**、Groundedness **98.4%**。
 
-图片端到端结果由独立 Claude Judge 配合人工逐条复核，不标记为 GPT-5.6 Judge；文本端的 97.2% 才是 GPT-5.6 Judge 口径。
+图片端到端结果由独立 Claude Judge 配合人工逐条复核。
 
-## 9. 面向简历的准确摘要
+## 9. 结果摘要
 
 - 文本：RRF → Cross-Encoder 的 Leaf Hit@1 为 **66% → 86%**，Leaf Hit@5 为 **90% → 98%**；Recall@3/@5 为 **95%/98%**；最终必答点完整覆盖 **96%**；可回答题 GPT-5.6 Judge 正确率 **97.2%**。
 - 视觉：377 次 occurrence 聚为 164 个 group，候选身份减少 **56.5%**；70 条视觉样本 Hit@1 为 **92.86% → 95.71%**。

@@ -318,7 +318,7 @@ def build_report(
     lines.append("# 图片问答答案忠实度：原始 vs 反射循环（Groundedness A/B）\n")
     lines.append(f"- 数据来源：`{source_cached_result}`")
     lines.append(f"- 可回答样本：{len(results)}")
-    lines.append(f"- 裁判模型：`{args.judge_model}`（qwen，DASHSCOPE；GPT 额度已用完，非 GPT-5.6 官方口径）")
+    lines.append(f"- 裁判模型：`{args.judge_model}`（qwen，DASHSCOPE）")
     lines.append(f"- Critic（反射检查器）模型：`{args.critic_model}`")
     lines.append(f"- 重生成模型：`{args.gen_model}`（与原答案生成模型一致，critic ≠ 生成器）")
     lines.append(f"- 最大反思轮数：{args.max_rounds}")
@@ -369,8 +369,8 @@ def build_report(
     lines.append("")
     lines.append("## 说明与诚实边界\n")
     lines.append("- 反射循环只做答案 vs 证据的相对检查，不重检索、不查金标；它压制无证据断言，不提升答案正确率。")
-    lines.append(f"- 裁判为 `{args.judge_model}`，非项目文本侧使用的 GPT-5.6 独立裁判；本数字用于同口径 A/B 对比，不能与 GPT-5.6 官方分数直接比较。")
-    lines.append("- 样本为可回答图片问答（should_refuse=False）；拒答样本不参与 Groundedness 评分（与现有图片评测口径一致）。")
+    lines.append(f"- 裁判为 `{args.judge_model}`，与文本评测使用的 GPT-5.6 独立裁判不同；结果用于相同评分设置下的 A/B 对比。")
+    lines.append("- 样本为可回答图片问答（should_refuse=False）；拒答样本不参与 Groundedness 评分。")
     return "\n".join(lines)
 
 

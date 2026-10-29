@@ -165,7 +165,7 @@ def main() -> None:
     lines = [
         "# 车主手册文本问答重构后评测汇总",
         "",
-        "## 1. 测试口径",
+        "## 1. 评测设置",
         "",
         f"- 运行时间：`{result.get('run', {}).get('finished_at')}`",
         f"- 数据集版本：`{records[0].get('dataset_version')}`",

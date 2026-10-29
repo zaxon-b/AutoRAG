@@ -178,7 +178,7 @@ def build_report(result: dict[str, Any], records: dict[str, dict[str, Any]]) -> 
     if visual_only:
         lines.append("- 本轮只评视觉召回与VLM实验门控，未运行正文召回和最终答案生成。")
     lines.append("- 生产决策：使用白底图片向量 + 多模态向量等权 RRF 的 Top1；VLM 二验默认关闭。")
-    lines.append("- 拒答口径：20 条拒答样本中只有 7 条通过 Gold 审计并纳入通用视觉拒答评分。")
+    lines.append("- 拒答评分：20 条拒答样本中只有 7 条通过 Gold 审计并纳入通用视觉拒答评分。")
     if refusal.get("status") == "not_available":
         lines.append("- 通用拒答指标：暂停；当前数据集没有合格的开放域拒答样本。")
     else:

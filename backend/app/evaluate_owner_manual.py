@@ -1388,7 +1388,7 @@ def markdown_report(result: dict[str, Any], top_k: int) -> str:
             "",
             f"### 可回答样本宏观汇总（n={combined_ablation.get('count', 0)}）",
             "",
-            "> 该表仅用于观察总体趋势：50条图标按 `icon_group_id` 评分，20条操作图按精确 `visual_chunk_id` 评分，混合了两种gold口径，不能替代上面的两张分组消融表。",
+            "> 该表仅用于观察总体趋势：50条图标按 `icon_group_id` 评分，20条操作图按精确 `visual_chunk_id` 评分，混合了两种 Gold 评分方式，不能替代上面的两张分组消融表。",
             "",
             "| 路线 | Hit@1 | Hit@3 | Hit@5 | MRR |",
             "|---|---:|---:|---:|---:|",

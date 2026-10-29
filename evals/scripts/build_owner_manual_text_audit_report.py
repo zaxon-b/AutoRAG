@@ -272,7 +272,7 @@ def build_report(
     lines = [
         f"# 车主手册文本评测逐题审计报告：{final_route_label}",
         "",
-        "本报告用于人工复核，不对当前指标口径作正确性背书。每条测试均展示原始标注、检索路线的真实 Top-5、最终送入回答模型的 Chunk，以及系统最终回答。",
+        "本报告用于人工复核。每条测试均展示原始标注、检索路线的真实 Top-5、最终送入回答模型的 Chunk，以及系统最终回答。",
         "",
         "## 报告说明",
         "",
@@ -290,7 +290,7 @@ def build_report(
         judge_model = clean_text(next(iter(judgments.values())).get("judge_model")) or "未标注"
         lines.extend(
             [
-                "## 裁判口径",
+                "## 裁判设置",
                 "",
                 f"- 裁判模型：**{judge_model}**。",
                 "- Answer Correctness：1.0=正确完整；0.8=基本正确，仅小遗漏；0.6=主结论正确但有重要遗漏；0.4=部分正确且遗漏较大；0.2=只有少量有效内容；0.0=错误、未回答或对可回答题错误拒答。",

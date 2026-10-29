@@ -1,6 +1,6 @@
 # 图片问答评测 Summary
 
-## 数据与口径
+## 数据与评分方法
 
 - 70 条可回答视觉样本：50 条 icon、20 条 operation figure。
 - icon 按 `icon_group_id` 评分，operation figure 按精确 `visual_chunk_id` 评分。
@@ -39,5 +39,5 @@
 | Answer Correctness | **93.14%** |
 | Groundedness | **98.43%** |
 
-简历按一位小数表示为：视觉 Hit@1 92.8% → 95.7%，必答点完整覆盖 87%，Answer Correctness 93.1%，Groundedness 98.4%。图片端结果由独立 Claude Judge 配合人工逐条复核。
+结果取一位小数：视觉 Hit@1 92.8% → 95.7%，必答点完整覆盖 87%，Answer Correctness 93.1%，Groundedness 98.4%。图片端结果由独立 Claude Judge 配合人工逐条复核。
 

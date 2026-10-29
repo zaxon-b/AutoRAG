@@ -87,11 +87,11 @@ flowchart LR
 
 ## 实验结果
 
-以下为最终包装口径；定义、样本量和完整消融见 [Eval.md](Eval.md)。
+评测结果如下；指标定义、样本量和完整消融见 [Eval.md](Eval.md)。
 
 | 模块 | 结果 |
 |---|---|
-| 文本检索 | Cross-Encoder 相比 Weighted RRF 将 Leaf Hit@1 从 **66% 提升到 86%**，Leaf Hit@5 从 **90% 提升到 98%**；Leaf-group Recall@3/@5 为 **95%/97%** |
+| 文本检索 | Cross-Encoder 相比 Weighted RRF 将 Leaf Hit@1 从 **66% 提升到 86%**，Leaf Hit@5 从 **90% 提升到 98%**；Leaf-group Recall@3/@5 为 **95%/98%** |
 | 文本上下文与回答 | 最终必答点完整覆盖率 **96%**；50 条可回答题的 GPT-5.6 Judge Answer Correctness 为 **97.2%** |
 | 图标索引压缩 | 将 **377** 次 icon occurrence 聚合为 **164** 个 group，在线候选身份减少 **56.5%** |
 | 视觉召回 | 70 条可回答视觉样本中，双路 RRF 将 Hit@1 从 **92.86% 提升到 95.71%**；Hit@5 为 **100%** |
@@ -115,7 +115,7 @@ AutoRAG/
 ├── evals/
 │   ├── datasets/            # 文本/图片 JSONL 与图片样本
 │   ├── scripts/             # 评测与报告生成代码
-│   └── results/             # 对外发布的最终 summary
+│   └── results/             # 评测结果汇总
 ├── Eval.md                  # 指标定义、消融实验和结果边界
 └── README.md
 ```
@@ -178,7 +178,7 @@ npm run dev
 
 ## 评测与测试
 
-数据集已经包含在 `evals/datasets/`；逐题 audit 和原始模型输出不发布，仓库仅保留与简历口径一致的汇总报告。
+数据集位于 `evals/datasets/`，评测汇总位于 `evals/results/`。逐题审计和原始模型输出不随仓库分发。
 
 ```bash
 cd backend
